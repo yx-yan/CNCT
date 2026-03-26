@@ -5,12 +5,28 @@
 #SBATCH --time=01:00:00
 #SBATCH --gpus=1
 #SBATCH --constraint=gpu
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=4
 
 echo "==================================="
 echo "Job ID    : $SLURM_JOB_ID"
 echo "Node      : $(hostname)"
 echo "Start     : $(date)"
+echo "==================================="
+echo ""
+echo "--- Config parameters ---"
+python -c "
+from config import N_ANGLES, ACCURACY, DSO_SCALE, DSD_SCALE, DETECTOR_COL_MARGIN, MU_WATER, MAX_CASES, FDK_FILTER, SAVE_PNG, SAVE_NII
+print(f'  N_ANGLES             : {N_ANGLES}')
+print(f'  ACCURACY             : {ACCURACY}')
+print(f'  FDK_FILTER           : {FDK_FILTER}')
+print(f'  DSO_SCALE            : {DSO_SCALE}')
+print(f'  DSD_SCALE            : {DSD_SCALE}')
+print(f'  DETECTOR_COL_MARGIN  : {DETECTOR_COL_MARGIN}')
+print(f'  MU_WATER             : {MU_WATER}')
+print(f'  MAX_CASES            : {MAX_CASES}')
+print(f'  SAVE_PNG             : {SAVE_PNG}')
+print(f'  SAVE_NII             : {SAVE_NII}')
+"
 echo "==================================="
 
 module purge

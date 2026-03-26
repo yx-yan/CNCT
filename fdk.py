@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 from config import (
     DATA_DIR, OUTPUT_DIR, N_ANGLES, MAX_CASES,
     DSO_SCALE, DSD_SCALE, DETECTOR_COL_MARGIN,
-    ACCURACY, IMAGE_DPI,
+    ACCURACY, MU_WATER, IMAGE_DPI, FDK_FILTER,
+    SAVE_PNG, SAVE_NII,
 )
 
 angles = np.linspace(0, 2 * np.pi, N_ANGLES, endpoint=False)
@@ -46,17 +47,19 @@ def save_recon_slices(recon, geo, case_out, case_name):
     """Save axial, coronal, and sagittal mid-slices with correct physical aspect ratios."""
     vmin, vmax = np.percentile(recon, [1, 99])
     dz, dy, dx = geo.dVoxel
+    nz, ny, nx = recon.shape
     slices = {
-        # shape (Y, X) → aspect = dx/dy
-        "axial":    (recon[recon.shape[0] // 2, :, :], dx / dy),
-        # shape (Z, X) → aspect = dx/dz
-        "coronal":  (recon[:, recon.shape[1] // 2, :], dx / dz),
-        # shape (Z, Y) → aspect = dy/dz
-        "sagittal": (recon[:, :, recon.shape[2] // 2], dy / dz),
+        # shape (Y, X) → physical height=ny*dy, width=nx*dx
+        "axial":    (recon[nz // 2, :, :],  ny * dy, nx * dx),
+        # shape (Z, X) → physical height=nz*dz, width=nx*dx
+        "coronal":  (recon[:, ny // 2, :],  nz * dz, nx * dx),
+        # shape (Z, Y) → physical height=nz*dz, width=ny*dy
+        "sagittal": (recon[:, :, nx // 2],  nz * dz, ny * dy),
     }
-    for name, (img, aspect) in slices.items():
-        fig, ax = plt.subplots()
-        ax.imshow(img, cmap="gray", vmin=vmin, vmax=vmax, aspect=aspect)
+    for name, (img, phys_h, phys_w) in slices.items():
+        scale = 6.0 / max(phys_h, phys_w)
+        fig, ax = plt.subplots(figsize=(phys_w * scale, phys_h * scale))
+        ax.imshow(img, cmap="gray", vmin=vmin, vmax=vmax, aspect="auto")
         ax.set_title(f"{case_name} — {name}")
         ax.axis("off")
         fig.savefig(os.path.join(case_out, f"recon_{name}.png"), bbox_inches="tight", dpi=IMAGE_DPI)
@@ -87,12 +90,24 @@ for nii_path in cases:
     geo = build_geometry(nVoxel, voxel_sizes)
 
     # --- FDK reconstruction ---
-    recon = tigre.algorithms.fdk(projections, geo, angles)
+    recon = tigre.algorithms.fdk(projections, geo, angles, filter=FDK_FILTER)
     print(f"  Reconstruction shape: {recon.shape}")
 
     # --- Save reconstruction ---
     np.save(os.path.join(case_out, "recon_fdk.npy"), recon)
-    save_recon_slices(recon, geo, case_out, case_name)
+
+    if SAVE_PNG:
+        save_recon_slices(recon, geo, case_out, case_name)
+
+    if SAVE_NII:
+        # Convert mu back to HU and transpose (Z,Y,X) → (X,Y,Z) for NIfTI
+        recon_hu = (recon / MU_WATER) * 1000.0 - 1000.0
+        recon_nii = nib.Nifti1Image(
+            np.transpose(recon_hu, (2, 1, 0)).astype(np.float32),
+            affine=nii_img.affine,
+            header=nii_img.header,
+        )
+        nib.save(recon_nii, os.path.join(case_out, "recon_fdk.nii.gz"))
 
     print(f"  Saved to {case_out}/\n")
 

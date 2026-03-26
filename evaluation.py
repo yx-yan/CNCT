@@ -47,26 +47,33 @@ def compute_psnr_ssim(gt, recon):
 def save_comparison(gt, recon, geo_dVoxel, case_out, case_name):
     """Save side-by-side GT vs reconstruction for axial, coronal, sagittal mid-slices."""
     dz, dy, dx = geo_dVoxel
+    nz, ny, nx = gt.shape
     vmin, vmax = np.percentile(gt, [1, 99])
 
     slices = {
-        "axial":    (gt[gt.shape[0] // 2],    recon[recon.shape[0] // 2],    dx / dy),
-        "coronal":  (gt[:, gt.shape[1] // 2], recon[:, recon.shape[1] // 2], dx / dz),
-        "sagittal": (gt[:, :, gt.shape[2] // 2], recon[:, :, recon.shape[2] // 2], dy / dz),
+        # shape (Y, X) → physical height=ny*dy, width=nx*dx
+        "axial":    (gt[nz // 2],    recon[nz // 2],    ny * dy, nx * dx),
+        # shape (Z, X) → physical height=nz*dz, width=nx*dx
+        "coronal":  (gt[:, ny // 2], recon[:, ny // 2], nz * dz, nx * dx),
+        # shape (Z, Y) → physical height=nz*dz, width=ny*dy
+        "sagittal": (gt[:, :, nx // 2], recon[:, :, nx // 2], nz * dz, ny * dy),
     }
-    for name, (gt_img, rec_img, aspect) in slices.items():
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    for name, (gt_img, rec_img, phys_h, phys_w) in slices.items():
+        # Each panel has the true physical aspect; 3 panels wide + colorbar on the last
+        panel_h = 5.0
+        panel_w = phys_w / phys_h * panel_h
+        fig, axes = plt.subplots(1, 3, figsize=(3 * panel_w, panel_h))
 
-        axes[0].imshow(gt_img, cmap="gray", vmin=vmin, vmax=vmax, aspect=aspect)
+        axes[0].imshow(gt_img, cmap="gray", vmin=vmin, vmax=vmax, aspect="auto")
         axes[0].set_title("Ground Truth")
         axes[0].axis("off")
 
-        axes[1].imshow(rec_img, cmap="gray", vmin=vmin, vmax=vmax, aspect=aspect)
+        axes[1].imshow(rec_img, cmap="gray", vmin=vmin, vmax=vmax, aspect="auto")
         axes[1].set_title("FDK Reconstruction")
         axes[1].axis("off")
 
         diff = np.abs(gt_img - rec_img)
-        im = axes[2].imshow(diff, cmap="hot", aspect=aspect)
+        im = axes[2].imshow(diff, cmap="hot", aspect="auto")
         axes[2].set_title("Absolute Difference")
         axes[2].axis("off")
         fig.colorbar(im, ax=axes[2], fraction=0.046, pad=0.04)
