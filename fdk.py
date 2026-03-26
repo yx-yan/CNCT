@@ -7,14 +7,15 @@ import nibabel as nib
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
-DATA_DIR = "data"
-OUTPUT_DIR = "output"
-N_ANGLES = 1000
+from config import (
+    DATA_DIR, OUTPUT_DIR, N_ANGLES, MAX_CASES,
+    DSO_SCALE, DSD_SCALE, DETECTOR_COL_MARGIN,
+    ACCURACY, IMAGE_DPI,
+)
 
 angles = np.linspace(0, 2 * np.pi, N_ANGLES, endpoint=False)
 
-cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))
+cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))[:MAX_CASES]
 print(f"Found {len(cases)} cases: {[os.path.basename(c) for c in cases]}\n")
 
 
@@ -27,17 +28,17 @@ def build_geometry(nVoxel, voxel_sizes):
     geo.sVoxel = geo.nVoxel * geo.dVoxel
 
     max_radius = np.sqrt((geo.sVoxel[1] / 2) ** 2 + (geo.sVoxel[2] / 2) ** 2)
-    geo.DSO = max_radius * 5
-    geo.DSD = geo.DSO * 1.5
+    geo.DSO = max_radius * DSO_SCALE
+    geo.DSD = geo.DSO * DSD_SCALE
 
     magnification = geo.DSD / geo.DSO
     geo.nDetector = np.array([nVoxel[0], max(nVoxel[1], nVoxel[2])])
     geo.dDetector = np.array([geo.dVoxel[0] * magnification,
-                               geo.dVoxel[2] * magnification * 1.5])
+                               geo.dVoxel[2] * magnification * DETECTOR_COL_MARGIN])
     geo.sDetector = geo.nDetector * geo.dDetector
     geo.offOrigin = np.array([0, 0, 0])
     geo.offDetector = np.array([0, 0])
-    geo.accuracy = 0.5
+    geo.accuracy = ACCURACY
     return geo
 
 
@@ -58,7 +59,7 @@ def save_recon_slices(recon, geo, case_out, case_name):
         ax.imshow(img, cmap="gray", vmin=vmin, vmax=vmax, aspect=aspect)
         ax.set_title(f"{case_name} — {name}")
         ax.axis("off")
-        fig.savefig(os.path.join(case_out, f"recon_{name}.png"), bbox_inches="tight", dpi=150)
+        fig.savefig(os.path.join(case_out, f"recon_{name}.png"), bbox_inches="tight", dpi=IMAGE_DPI)
         plt.close(fig)
 
 

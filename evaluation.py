@@ -8,9 +8,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
-DATA_DIR = "data"
-OUTPUT_DIR = "output"
-MU_WATER = 0.02  # mm⁻¹, must match projection.py
+from config import DATA_DIR, OUTPUT_DIR, MU_WATER, MAX_CASES
 
 
 def hu_to_mu(volume_hu):
@@ -80,7 +78,7 @@ def save_comparison(gt, recon, geo_dVoxel, case_out, case_name):
 
 # ── Main evaluation loop ────────────────────────────────────────────────────
 
-cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))
+cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))[:MAX_CASES]
 print(f"Found {len(cases)} cases\n")
 
 results = []  # list of dicts for CSV

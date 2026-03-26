@@ -22,24 +22,29 @@ cat logs/output_<job_id>.log
 cat logs/output_<job_id>.err
 ```
 
-The SLURM job loads `CUDA/12.3.0` and activates the `tigre` conda environment, then runs `projection.py` followed by `fdk.py`. Reference TIGRE demos at `~/TIGRE/Python/demos/`.
+The SLURM job loads `CUDA/12.3.0` and activates the `tigre` conda environment, then runs `projection.py` → `fdk.py` → `evaluation.py`. Reference TIGRE demos at `~/TIGRE/Python/demos/`.
 
 ### Known issue: CUDA architecture mismatch
 The `--constraint=gpu_48g` constraint may allocate a Blackwell GPU (RTX PRO 6000), which is incompatible with CUDA 12.3 and causes `Ax:Siddon_projection no kernel image is available for execution on the device`. If this happens, TIGRE silently fails and no `projections.npy` is written, causing `fdk.py` to skip all cases. Fix by recompiling TIGRE for the target GPU architecture or requesting a different node.
 
-## Two-script pipeline
+## Configuration
+
+All tunable parameters live in `config.py` and are imported by both `projection.py` and `fdk.py`. Edit `config.py` to change scan angles, geometry scaling, detector margins, accuracy, attenuation constants, or output DPI. **`evaluation.py` has its own `MU_WATER` constant that must be kept in sync with `config.py`.**
+
+## Three-script pipeline
 
 `projection.py` and `fdk.py` must use **identical geometry**. `fdk.py` reconstructs from the `.npy` files written by `projection.py` by rebuilding the same geometry from the NIfTI header. If geometry parameters diverge, reconstruction will be mis-registered.
 
 ### Data flow
 1. `projection.py`: Load NIfTI → transpose `(X,Y,Z)` → `(Z,Y,X)` → convert HU to linear attenuation → build geometry → `tigre.Ax()` → save `projections.npy` + PNGs
 2. `fdk.py`: Load `projections.npy` → rebuild same geometry from NIfTI header → `tigre.algorithms.fdk()` → save `recon_fdk.npy` + slice PNGs
+3. `evaluation.py`: Load NIfTI + `recon_fdk.npy` → compute PSNR & mean per-slice SSIM → save `eval_*.png` comparison images + `output/evaluation_results.csv`
 
 ### Geometry conventions
 - TIGRE volumes are always **(Z, Y, X)** — NIfTI `get_fdata()` returns `(X, Y, Z)` and must be transposed with `np.transpose(volume, (2, 1, 0))`.
 - NIfTI `get_zooms()` returns voxel sizes in `(X, Y, Z)` order; `geo.dVoxel` must be reordered to `[Z, Y, X]`.
-- **DSO/DSD are dynamic**, not hardcoded: `max_radius = sqrt((sVoxel[1]/2)² + (sVoxel[2]/2)²)`, then `DSO = max_radius × 5`, `DSD = DSO × 1.5`. This ensures the source is outside every volume and eliminates the circular FOV boundary artifact.
-- Detector columns use `max(nVoxel[1], nVoxel[2])` with `dDetector[1] *= 1.5` to prevent truncation artifacts.
+- **DSO/DSD are dynamic**, not hardcoded: `max_radius = sqrt((sVoxel[1]/2)² + (sVoxel[2]/2)²)`, then `DSO = max_radius × DSO_SCALE`, `DSD = DSO × DSD_SCALE` (defaults 5 and 1.5). This ensures the source is outside every volume and eliminates the circular FOV boundary artifact.
+- Detector columns use `max(nVoxel[1], nVoxel[2])` with `dDetector[1] *= DETECTOR_COL_MARGIN` to prevent truncation artifacts.
 - Geometry must be rebuilt per case — `nVoxel`, `dVoxel`, and therefore DSO/DSD all differ across cases.
 
 ### Volume preprocessing
@@ -57,15 +62,19 @@ The `--constraint=gpu_48g` constraint may allocate a Blackwell GPU (RTX PRO 6000
 ```
 output/
   Case_00001/
-    projections.npy         # shape (360, nDetZ, nDetX), float32, linear attenuation units
-    proj_000.png            # every 10th angle, consistent contrast
+    projections.npy         # shape (N_ANGLES, nDetZ, nDetX), float32, linear attenuation units
+    proj_000.png            # every PROJ_SAVE_EVERY-th angle, consistent contrast
     volume_axial_mid.png    # mid-slice sanity check (mu values)
     recon_fdk.npy           # FDK reconstruction, shape (Z, Y, X)
     recon_axial.png
     recon_coronal.png
     recon_sagittal.png
+    eval_axial.png          # GT | FDK | diff (written by evaluation.py)
+    eval_coronal.png
+    eval_sagittal.png
   Case_00002/
     ...
+  evaluation_results.csv    # per-case PSNR (dB) and mean SSIM
 ```
 
 ## Data

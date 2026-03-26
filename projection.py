@@ -6,14 +6,15 @@ import nibabel as nib
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
-DATA_DIR = "data"
-OUTPUT_DIR = "output"
-N_ANGLES = 1000
+from config import (
+    DATA_DIR, OUTPUT_DIR, N_ANGLES, MAX_CASES,
+    DSO_SCALE, DSD_SCALE, DETECTOR_COL_MARGIN,
+    ACCURACY, MU_WATER, PROJ_SAVE_EVERY, IMAGE_DPI,
+)
 
 angles = np.linspace(0, 2 * np.pi, N_ANGLES, endpoint=False)
 
-cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))
+cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))[:MAX_CASES]
 print(f"Found {len(cases)} cases: {[os.path.basename(c) for c in cases]}\n")
 
 for nii_path in cases:
@@ -31,8 +32,7 @@ for nii_path in cases:
     nVoxel = np.array(volume.shape, dtype=np.int64)
 
     # Convert HU to linear attenuation coefficients (mu_water ≈ 0.02 mm⁻¹)
-    mu_water = 0.02
-    volume = (volume + 1000.0) / 1000.0 * mu_water
+    volume = (volume + 1000.0) / 1000.0 * MU_WATER
     volume = np.clip(volume, 0, None)
     volume = np.ascontiguousarray(volume)
 
@@ -45,18 +45,18 @@ for nii_path in cases:
 
     # DSO scaled to volume diagonal so source is always outside the object
     max_radius = np.sqrt((geo.sVoxel[1] / 2) ** 2 + (geo.sVoxel[2] / 2) ** 2)
-    geo.DSO = max_radius * 5
-    geo.DSD = geo.DSO * 1.5
+    geo.DSO = max_radius * DSO_SCALE
+    geo.DSD = geo.DSO * DSD_SCALE
 
     magnification = geo.DSD / geo.DSO
-    # Detector columns cover max(nY, nX) with 1.5× margin to prevent truncation
+    # Detector columns cover max(nY, nX) with margin to prevent truncation
     geo.nDetector = np.array([nVoxel[0], max(nVoxel[1], nVoxel[2])])
     geo.dDetector = np.array([geo.dVoxel[0] * magnification,
-                               geo.dVoxel[2] * magnification * 1.5])
+                               geo.dVoxel[2] * magnification * DETECTOR_COL_MARGIN])
     geo.sDetector = geo.nDetector * geo.dDetector
     geo.offOrigin = np.array([0, 0, 0])
     geo.offDetector = np.array([0, 0])
-    geo.accuracy = 0.5
+    geo.accuracy = ACCURACY
 
     # --- Forward projection ---
     projections = tigre.Ax(volume, geo, angles)
@@ -72,14 +72,14 @@ for nii_path in cases:
     vmin_proj, vmax_proj = projections.min(), projections.max()
     proj_aspect = geo.dDetector[1] / geo.dDetector[0]
 
-    # Save every 10th projection angle as PNG
-    for i in range(0, N_ANGLES, 10):
+    # Save every Nth projection angle as PNG
+    for i in range(0, N_ANGLES, PROJ_SAVE_EVERY):
         fig, ax = plt.subplots()
         ax.imshow(projections[i], cmap="gray", aspect=proj_aspect,
                   vmin=vmin_proj, vmax=vmax_proj)
         ax.set_title(f"{case_name} — {np.degrees(angles[i]):.1f}°")
         ax.axis("off")
-        fig.savefig(os.path.join(case_out, f"proj_{i:03d}.png"), bbox_inches="tight", dpi=150)
+        fig.savefig(os.path.join(case_out, f"proj_{i:03d}.png"), bbox_inches="tight", dpi=IMAGE_DPI)
         plt.close(fig)
 
     # Save mid axial slice of volume
@@ -90,7 +90,7 @@ for nii_path in cases:
     ax.imshow(volume[mid_z], cmap="gray", aspect=vol_aspect)
     ax.set_title(f"{case_name} — axial slice z={mid_z}")
     ax.axis("off")
-    fig.savefig(os.path.join(case_out, "volume_axial_mid.png"), bbox_inches="tight", dpi=150)
+    fig.savefig(os.path.join(case_out, "volume_axial_mid.png"), bbox_inches="tight", dpi=IMAGE_DPI)
     plt.close(fig)
 
     print(f"  Saved to {case_out}/\n")
