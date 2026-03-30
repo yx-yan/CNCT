@@ -8,7 +8,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from config import (
-    DATA_DIR, OUTPUT_DIR, N_ANGLES, MAX_CASES,
+    DATA_DIR, PROJ_DIR, FDK_DIR, N_ANGLES, MAX_CASES,
     DSO_SCALE, DSD_SCALE, DETECTOR_COL_MARGIN,
     ACCURACY, MU_WATER, IMAGE_DPI, FDK_FILTER,
     SAVE_PNG, SAVE_NII,
@@ -68,8 +68,8 @@ def save_recon_slices(recon, geo, case_out, case_name):
 
 for nii_path in cases:
     case_name = os.path.basename(nii_path).replace("_0000.nii.gz", "")
-    case_out = os.path.join(OUTPUT_DIR, case_name)
-    proj_path = os.path.join(case_out, "projections.npy")
+    proj_path = os.path.join(PROJ_DIR, case_name, "projections.npy")
+    case_out = os.path.join(FDK_DIR, case_name)
 
     if not os.path.exists(proj_path):
         print(f"  Skipping {case_name} — projections.npy not found")
@@ -94,6 +94,7 @@ for nii_path in cases:
     print(f"  Reconstruction shape: {recon.shape}")
 
     # --- Save reconstruction ---
+    os.makedirs(case_out, exist_ok=True)
     np.save(os.path.join(case_out, "recon_fdk.npy"), recon)
 
     if SAVE_PNG:

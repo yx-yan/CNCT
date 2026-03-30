@@ -7,7 +7,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from config import (
-    DATA_DIR, OUTPUT_DIR, N_ANGLES, MAX_CASES,
+    DATA_DIR, PROJ_DIR, N_ANGLES, MAX_CASES,
     DSO_SCALE, DSD_SCALE, DETECTOR_COL_MARGIN,
     ACCURACY, MU_WATER, PROJ_SAVE_EVERY, IMAGE_DPI,
     SAVE_PNG,
@@ -64,7 +64,7 @@ for nii_path in cases:
     print(f"  Projections shape: {projections.shape}")
 
     # --- Save outputs ---
-    case_out = os.path.join(OUTPUT_DIR, case_name)
+    case_out = os.path.join(PROJ_DIR, case_name)
     os.makedirs(case_out, exist_ok=True)
 
     np.save(os.path.join(case_out, "projections.npy"), projections)

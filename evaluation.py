@@ -8,7 +8,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
-from config import DATA_DIR, OUTPUT_DIR, MU_WATER, MAX_CASES
+from config import DATA_DIR, FDK_DIR, EVAL_DIR, MU_WATER, MAX_CASES, IMAGE_DPI
 
 
 def hu_to_mu(volume_hu):
@@ -79,7 +79,7 @@ def save_comparison(gt, recon, geo_dVoxel, case_out, case_name):
         fig.colorbar(im, ax=axes[2], fraction=0.046, pad=0.04)
 
         fig.suptitle(f"{case_name} — {name}")
-        fig.savefig(os.path.join(case_out, f"eval_{name}.png"), bbox_inches="tight", dpi=150)
+        fig.savefig(os.path.join(case_out, f"eval_{name}.png"), bbox_inches="tight", dpi=IMAGE_DPI)
         plt.close(fig)
 
 
@@ -92,8 +92,8 @@ results = []  # list of dicts for CSV
 
 for nii_path in cases:
     case_name = os.path.basename(nii_path).replace("_0000.nii.gz", "")
-    case_out = os.path.join(OUTPUT_DIR, case_name)
-    recon_path = os.path.join(case_out, "recon_fdk.npy")
+    recon_path = os.path.join(FDK_DIR, case_name, "recon_fdk.npy")
+    case_out = os.path.join(EVAL_DIR, case_name)
 
     if not os.path.exists(recon_path):
         print(f"  Skipping {case_name} — recon_fdk.npy not found")
@@ -130,12 +130,14 @@ for nii_path in cases:
         print(f"  Metrics not yet implemented (TODO(human) pending)")
 
     # --- Comparison images ---
+    os.makedirs(case_out, exist_ok=True)
     save_comparison(gt, recon, dVoxel, case_out, case_name)
     print(f"  Comparison images saved to {case_out}/\n")
 
 # --- Save CSV summary ---
 if results:
-    csv_path = os.path.join(OUTPUT_DIR, "evaluation_results.csv")
+    os.makedirs(EVAL_DIR, exist_ok=True)
+    csv_path = os.path.join(EVAL_DIR, "evaluation_results.csv")
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["case", "psnr_db", "ssim"])
         writer.writeheader()

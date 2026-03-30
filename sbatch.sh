@@ -33,7 +33,7 @@ module purge
 module load GCC/11.4.0
 module load CUDA/12.3.0
 module load Miniconda3/25.5.1-0
-conda activate tigre
+conda activate fyp
 
 echo "--- GPU ---"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
@@ -56,8 +56,11 @@ echo "  projection.py finished in $((SECONDS - T0))s"
 echo ""
 
 # Sanity check: confirm projections.npy was written for each case
+PROJ_DIR=$(python -c "from config import PROJ_DIR; print(PROJ_DIR)")
+FDK_DIR=$(python -c "from config import FDK_DIR; print(FDK_DIR)")
+EVAL_DIR=$(python -c "from config import EVAL_DIR; print(EVAL_DIR)")
 echo "--- Projection outputs ---"
-for f in output/*/projections.npy; do
+for f in "$PROJ_DIR"/*/projections.npy; do
     if [ -f "$f" ]; then
         SHAPE=$(python -c "import numpy as np; a=np.load('$f', mmap_mode='r'); print(f'  {a.shape}')" 2>/dev/null)
         echo "  $f  shape=$SHAPE"
@@ -78,7 +81,7 @@ echo ""
 
 # Sanity check: confirm recon_fdk.npy was written for each case
 echo "--- Reconstruction outputs ---"
-for f in output/*/recon_fdk.npy; do
+for f in "$FDK_DIR"/*/recon_fdk.npy; do
     if [ -f "$f" ]; then
         SHAPE=$(python -c "import numpy as np; a=np.load('$f', mmap_mode='r'); print(f'  {a.shape}')" 2>/dev/null)
         echo "  $f  shape=$SHAPE"
@@ -98,7 +101,7 @@ echo "  evaluation.py finished in $((SECONDS - T0))s"
 echo ""
 
 # Print the CSV summary if it was written
-CSV="output/evaluation_results.csv"
+CSV="$EVAL_DIR/evaluation_results.csv"
 if [ -f "$CSV" ]; then
     echo "--- Evaluation results ---"
     column -t -s, "$CSV"
