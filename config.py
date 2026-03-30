@@ -5,7 +5,7 @@ DATA_DIR  = "/projects/CTdata/AbdomenCT-1K-ImagePart1"
 PROJ_DIR  = "/projects/CTdata/projection60"   # projection.py output
 FDK_DIR   = "/projects/CTdata/fdk60"          # fdk.py output
 EVAL_DIR  = "/projects/CTdata/evaluation60"   # evaluation.py output
-MAX_CASES = 5          # max number of cases to process; None = all cases
+MAX_CASES = 10          # max number of cases to process; None = all cases
 
 # --- Acquisition ---
 N_ANGLES = 60          # number of projection angles (full 360°)
@@ -27,7 +27,7 @@ FDK_FILTER = "shepp_logan"  # filter for FDK backprojection: "ram_lak" | "shepp_
 MU_WATER = 0.02          # mm⁻¹, linear attenuation of water at ~70 keV
 
 # --- Output ---
-SAVE_PNG = True          # projection.py and fdk.py never save PNGs
+SAVE_PNG = False          # projection.py and fdk.py never save PNGs
 SAVE_NII = False         # fdk.py never saves recon_fdk.nii.gz
 
 # --- Visualisation ---

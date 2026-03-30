@@ -8,7 +8,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
-from config import DATA_DIR, FDK_DIR, EVAL_DIR, MU_WATER, MAX_CASES, IMAGE_DPI
+from config import DATA_DIR, FDK_DIR, EVAL_DIR, MU_WATER, MAX_CASES, IMAGE_DPI, SAVE_PNG
 
 
 def hu_to_mu(volume_hu):
@@ -130,9 +130,10 @@ for nii_path in cases:
         print(f"  Metrics not yet implemented (TODO(human) pending)")
 
     # --- Comparison images ---
-    os.makedirs(case_out, exist_ok=True)
-    save_comparison(gt, recon, dVoxel, case_out, case_name)
-    print(f"  Comparison images saved to {case_out}/\n")
+    if SAVE_PNG:
+        os.makedirs(case_out, exist_ok=True)
+        save_comparison(gt, recon, dVoxel, case_out, case_name)
+        print(f"  Comparison images saved to {case_out}/\n")
 
 # --- Save CSV summary ---
 if results:
