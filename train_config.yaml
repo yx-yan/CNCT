@@ -1,0 +1,100 @@
+# 3D UNet — FDK reconstruction enhancement
+# Task : regression  (coarse FDK CT  →  high-quality ground-truth CT)
+# Units: both raw and label are stored in linear attenuation (μ, mm⁻¹)
+#        after prepare_data.py runs; Normalize maps each to [-1, 1].
+
+model:
+  name: UNet3D
+  in_channels: 1
+  out_channels: 1
+  layer_order: gcr          # GroupNorm + Conv3d + ReLU
+  f_maps: [16, 32, 64, 128, 256]
+  num_groups: 8
+  is_segmentation: false    # regression — no sigmoid/softmax at the output
+
+trainer:
+  checkpoint_dir: /projects/CTdata/3dunet_checkpoints
+  resume: null              # set to checkpoint path to resume interrupted training
+  pre_trained: null
+  validate_after_iters: 500
+  log_after_iters: 100
+  max_num_epochs: 200
+  max_num_iterations: 150000
+  eval_score_higher_is_better: true   # PSNR: higher is better
+
+optimizer:
+  learning_rate: 0.0002
+  weight_decay: 0.00001
+
+loss:
+  name: SmoothL1Loss
+  ignore_index: null
+
+eval_metric:
+  name: PSNR
+  ignore_index: null
+
+lr_scheduler:
+  name: ReduceLROnPlateau
+  mode: max         # PSNR — higher is better
+  factor: 0.5
+  patience: 10      # validation runs with no improvement before LR drop
+
+loaders:
+  dataset: StandardHDF5Dataset
+  batch_size: 1
+  num_workers: 4
+  raw_internal_path: raw
+  label_internal_path: label
+  # Compute per-volume 1st/99.6th percentile stats used by the Normalize transform
+  global_normalization: true
+
+  train:
+    file_paths:
+      - /projects/CTdata/h5_3dunet/train
+
+    slice_builder:
+      name: SliceBuilder
+      patch_shape: [64, 128, 128]   # (Z, Y, X) — increase if GPU memory allows
+      stride_shape: [32, 64,  64]   # 50 % overlap in each axis during training
+
+    transformer:
+      raw:
+        - name: Normalize           # per-volume min-max → [-1, 1]
+        - name: RandomFlip
+        - name: RandomRotate90
+        - name: RandomRotate
+          axes: [[2, 1]]            # ZY plane (avoids rotating anisotropic axis)
+          angle_spectrum: 20
+          mode: reflect
+        - name: ToTensor
+          expand_dims: true         # adds channel dim: (Z,Y,X) → (1,Z,Y,X)
+      label:
+        - name: Normalize
+        - name: RandomFlip
+        - name: RandomRotate90
+        - name: RandomRotate
+          axes: [[2, 1]]
+          angle_spectrum: 20
+          mode: reflect
+        - name: ToTensor
+          expand_dims: true
+
+  val:
+    file_paths:
+      - /projects/CTdata/h5_3dunet/val
+
+    slice_builder:
+      name: SliceBuilder
+      patch_shape: [64, 128, 128]
+      stride_shape: [64, 128, 128]  # no overlap during validation
+
+    transformer:
+      raw:
+        - name: Normalize
+        - name: ToTensor
+          expand_dims: true
+      label:
+        - name: Normalize
+        - name: ToTensor
+          expand_dims: true
