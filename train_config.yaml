@@ -7,15 +7,31 @@ model:
   name: UNet3D
   in_channels: 1
   out_channels: 1
-  layer_order: gcr          # GroupNorm + Conv3d + ReLU
+  # layer_order "gcr": GroupNorm → Conv3d → ReLU applied within every
+  # SingleConv block.  GroupNorm is preferred over BatchNorm for 3D medical
+  # imaging because batch sizes are typically 1 (GPU memory constraint), and
+  # BatchNorm statistics are unreliable at batch_size=1.
+  layer_order: gcr
+  # Feature-map counts double at each encoder level: 16→32→64→128→256.
+  # This is a mid-size model (~4 M params) that fits comfortably in 48 GB
+  # GPU RAM with patch_shape [64,128,128].  Increase if GPU memory allows.
   f_maps: [16, 32, 64, 128, 256]
+  # num_groups=8 divides each feature-map count evenly (16/8=2, 32/8=4, …).
+  # GroupNorm is stable as long as channels_per_group ≥ 1; 8 groups is a
+  # common default that balances normalisation quality and compute.
   num_groups: 8
-  is_segmentation: false    # regression — no sigmoid/softmax at the output
+  # Disables the sigmoid/softmax output activation used in segmentation.
+  # Required for regression — the network must output continuous μ values,
+  # not class probabilities.
+  is_segmentation: false
 
 trainer:
   checkpoint_dir: /projects/CTdata/3dunet_checkpoints
   resume: null              # set to checkpoint path to resume interrupted training
   pre_trained: null
+  # Validation is expensive (full forward pass over all val patches).
+  # Run it every 500 training iterations rather than every epoch to get
+  # earlier feedback without dominating training time.
   validate_after_iters: 500
   log_after_iters: 100
   max_num_epochs: 200
@@ -27,27 +43,45 @@ optimizer:
   weight_decay: 0.00001
 
 loss:
+  # SmoothL1Loss (Huber loss) combines the stability of L2 near zero with
+  # the outlier-robustness of L1 for larger errors.  Better than MSE for
+  # CT reconstruction where occasional high-error voxels (streaks, metal)
+  # would otherwise dominate gradient updates.
   name: SmoothL1Loss
   ignore_index: null
 
 eval_metric:
+  # PSNR (Peak Signal-to-Noise Ratio) is the primary validation metric.
+  # Measured in dB; higher is better.  Reported per patch during validation.
   name: PSNR
   ignore_index: null
 
 lr_scheduler:
   name: ReduceLROnPlateau
   mode: max         # PSNR — higher is better
-  factor: 0.5
-  patience: 10      # validation runs with no improvement before LR drop
+  factor: 0.5       # halve the LR on plateau
+  # patience=10 means the LR drops only after 10 consecutive validation
+  # rounds with no PSNR improvement.  With validate_after_iters=500 this
+  # corresponds to 5000 iterations of no improvement before an LR step.
+  patience: 10
 
 loaders:
-  dataset: StandardHDF5Dataset
+  dataset: LazyHDF5Dataset
   batch_size: 1
-  num_workers: 4
+  # num_workers=0: data loading runs in the main process.
+  # Worker processes each load entire volumes to compute normalization stats,
+  # so even num_workers=4 caused OOM on the 64 GB node (job 52330).
+  num_workers: 0
   raw_internal_path: raw
   label_internal_path: label
-  # Compute per-volume 1st/99.6th percentile stats used by the Normalize transform
-  global_normalization: true
+  # global_normalization=false: each volume is normalised with its own
+  # per-volume 1st/99.6th percentile stats at load time, rather than
+  # computing a single set of stats across the entire dataset at startup.
+  # Per-volume normalisation is also required for correct postprocessing —
+  # postprocess_predictions.py re-reads the same per-volume percentiles to
+  # invert the transform.  Setting this to true loads all volumes into RAM
+  # during initialisation, which caused OOM in job 52330.
+  global_normalization: false
 
   train:
     file_paths:
@@ -55,14 +89,28 @@ loaders:
 
     slice_builder:
       name: SliceBuilder
-      patch_shape: [64, 128, 128]   # (Z, Y, X) — increase if GPU memory allows
-      stride_shape: [32, 64,  64]   # 50 % overlap in each axis during training
+      # Patch shape (Z, Y, X) = [64, 128, 128].
+      # Z=64 is the minimum depth to accommodate thin volumes (≥64 slices).
+      # Y=X=128 covers a 128×128 voxel field of view, large enough for
+      # meaningful anatomical context without excessive GPU memory use.
+      patch_shape: [64, 128, 128]
+      # 50% overlap in every axis during training (stride = patch/2).
+      # Each voxel appears in multiple patches with different surrounding
+      # context, which acts as data augmentation and improves generalisation.
+      stride_shape: [32, 64,  64]
+      # lazy_loader is set automatically by LazyHDF5Dataset.is_lazy() — no
+      # need to set it here; the dataset class controls it.
 
     transformer:
       raw:
         - name: Normalize           # per-volume min-max → [-1, 1]
         - name: RandomFlip
         - name: RandomRotate90
+        # RandomRotate only in the ZY plane (axes=[2,1] = Y and X axes of the
+        # volume array, i.e. the in-plane directions).  Rotation around the Z
+        # axis is avoided because Z spacing is often much larger than XY
+        # spacing in CT (anisotropic voxels), so rotating into the Z axis
+        # would mix physically different scales.
         - name: RandomRotate
           axes: [[2, 1]]            # ZY plane (avoids rotating anisotropic axis)
           angle_spectrum: 20
@@ -87,7 +135,9 @@ loaders:
     slice_builder:
       name: SliceBuilder
       patch_shape: [64, 128, 128]
-      stride_shape: [64, 128, 128]  # no overlap during validation
+      # No overlap during validation: each voxel is evaluated exactly once,
+      # giving a fair and fast PSNR estimate without double-counting.
+      stride_shape: [64, 128, 128]
 
     transformer:
       raw:

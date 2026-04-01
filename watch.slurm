@@ -1,1 +1,0 @@
-watch -n 10 squeue -u n2500633e

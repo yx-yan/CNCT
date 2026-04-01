@@ -1,4 +1,10 @@
-# Pipeline configuration for projection.py and fdk.py
+"""Central configuration for the CBCT simulation and reconstruction pipeline.
+
+All tunable parameters are defined here and imported by the pipeline scripts.
+Changing a value here affects every script that uses it — no need to edit
+individual files.  The SLURM job (sbatch.sh) prints these values at startup
+so each run's settings are recorded in the log.
+"""
 
 # --- Paths ---
 DATA_DIR  = "/projects/CTdata/AbdomenCT-1K-ImagePart1"

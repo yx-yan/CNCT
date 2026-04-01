@@ -1,46 +1,37 @@
+#!/usr/bin/env python3
+"""Reconstruct CT volumes from projections using Feldkamp-Davis-Kress (FDK).
+
+Pipeline stage 2/3.  For each case with projections.npy in PROJ_DIR:
+  1. Load projections and rebuild the identical cone-beam geometry
+  2. Run TIGRE's FDK filtered back-projection
+  3. Save recon_fdk.npy (always) and optionally .nii.gz + PNG slices
+
+Input:  PROJ_DIR/<case>/projections.npy  (from projection.py)
+Output: FDK_DIR/<case>/recon_fdk.npy     (consumed by evaluation.py)
+"""
+
 import os
 import glob
-import tigre
-import tigre.algorithms
+
 import numpy as np
 import nibabel as nib
+import tigre
+import tigre.algorithms
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
 from config import (
     DATA_DIR, PROJ_DIR, FDK_DIR, N_ANGLES, MAX_CASES,
-    DSO_SCALE, DSD_SCALE, DETECTOR_COL_MARGIN,
-    ACCURACY, MU_WATER, IMAGE_DPI, FDK_FILTER,
-    SAVE_PNG, SAVE_NII,
+    MU_WATER, IMAGE_DPI, FDK_FILTER, SAVE_PNG, SAVE_NII,
 )
+from geometry import build_geometry, load_nifti_as_tigre, mu_to_hu
 
+# Must match the angles used in projection.py
 angles = np.linspace(0, 2 * np.pi, N_ANGLES, endpoint=False)
 
 cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))[:MAX_CASES]
 print(f"Found {len(cases)} cases: {[os.path.basename(c) for c in cases]}\n")
-
-
-def build_geometry(nVoxel, voxel_sizes):
-    """Build TIGRE geometry matching projection.py exactly."""
-    geo = tigre.geometry()
-    geo.mode = "cone"
-    geo.nVoxel = nVoxel
-    geo.dVoxel = np.array([voxel_sizes[2], voxel_sizes[1], voxel_sizes[0]])
-    geo.sVoxel = geo.nVoxel * geo.dVoxel
-
-    max_radius = np.sqrt((geo.sVoxel[1] / 2) ** 2 + (geo.sVoxel[2] / 2) ** 2)
-    geo.DSO = max_radius * DSO_SCALE
-    geo.DSD = geo.DSO * DSD_SCALE
-
-    magnification = geo.DSD / geo.DSO
-    geo.nDetector = np.array([nVoxel[0], max(nVoxel[1], nVoxel[2])])
-    geo.dDetector = np.array([geo.dVoxel[0] * magnification,
-                               geo.dVoxel[2] * magnification * DETECTOR_COL_MARGIN])
-    geo.sDetector = geo.nDetector * geo.dDetector
-    geo.offOrigin = np.array([0, 0, 0])
-    geo.offDetector = np.array([0, 0])
-    geo.accuracy = ACCURACY
-    return geo
 
 
 def save_recon_slices(recon, geo, case_out, case_name):
@@ -48,12 +39,10 @@ def save_recon_slices(recon, geo, case_out, case_name):
     vmin, vmax = np.percentile(recon, [1, 99])
     dz, dy, dx = geo.dVoxel
     nz, ny, nx = recon.shape
+
     slices = {
-        # shape (Y, X) → physical height=ny*dy, width=nx*dx
         "axial":    (recon[nz // 2, :, :],  ny * dy, nx * dx),
-        # shape (Z, X) → physical height=nz*dz, width=nx*dx
         "coronal":  (recon[:, ny // 2, :],  nz * dz, nx * dx),
-        # shape (Z, Y) → physical height=nz*dz, width=ny*dy
         "sagittal": (recon[:, :, nx // 2],  nz * dz, ny * dy),
     }
     for name, (img, phys_h, phys_w) in slices.items():
@@ -62,7 +51,8 @@ def save_recon_slices(recon, geo, case_out, case_name):
         ax.imshow(img, cmap="gray", vmin=vmin, vmax=vmax, aspect="auto")
         ax.set_title(f"{case_name} — {name}")
         ax.axis("off")
-        fig.savefig(os.path.join(case_out, f"recon_{name}.png"), bbox_inches="tight", dpi=IMAGE_DPI)
+        fig.savefig(os.path.join(case_out, f"recon_{name}.png"),
+                    bbox_inches="tight", dpi=IMAGE_DPI)
         plt.close(fig)
 
 
@@ -83,17 +73,14 @@ for nii_path in cases:
 
     # --- Rebuild geometry from NIfTI header (must match projection.py) ---
     nii_img = nib.load(nii_path)
-    volume_shape = nii_img.get_fdata().shape  # (X, Y, Z)
-    voxel_sizes = np.array(nii_img.header.get_zooms()[:3], dtype=np.float32)
-    nVoxel = np.array([volume_shape[2], volume_shape[1], volume_shape[0]], dtype=np.int64)
-
+    nVoxel, voxel_sizes = load_nifti_as_tigre(nii_img)
     geo = build_geometry(nVoxel, voxel_sizes)
 
     # --- FDK reconstruction ---
     recon = tigre.algorithms.fdk(projections, geo, angles, filter=FDK_FILTER)
     print(f"  Reconstruction shape: {recon.shape}")
 
-    # --- Save reconstruction ---
+    # --- Save outputs ---
     os.makedirs(case_out, exist_ok=True)
     np.save(os.path.join(case_out, "recon_fdk.npy"), recon)
 
@@ -101,10 +88,9 @@ for nii_path in cases:
         save_recon_slices(recon, geo, case_out, case_name)
 
     if SAVE_NII:
-        # Convert mu back to HU and transpose (Z,Y,X) → (X,Y,Z) for NIfTI
-        recon_hu = (recon / MU_WATER) * 1000.0 - 1000.0
+        recon_hu = mu_to_hu(recon)
         recon_nii = nib.Nifti1Image(
-            np.transpose(recon_hu, (2, 1, 0)).astype(np.float32),
+            np.transpose(recon_hu, (2, 1, 0)),
             affine=nii_img.affine,
             header=nii_img.header,
         )

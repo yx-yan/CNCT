@@ -22,17 +22,31 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from geometry import mu_to_hu
+
 PRED_DIR  = "/projects/CTdata/3dunet_predictions"
 H5_TEST   = "/projects/CTdata/h5_3dunet/test"
-MU_WATER  = 0.02   # mm⁻¹
-
-
-def mu_to_hu(mu: np.ndarray, mu_water: float) -> np.ndarray:
-    return mu / mu_water * 1000.0 - 1000.0
+MU_WATER  = 0.02   # mm-1
 
 
 def normalize_inverse(pred_norm: np.ndarray, pmin: float, pmax: float) -> np.ndarray:
-    """Invert the Normalize transform: [-1, 1] → original μ range."""
+    """Invert pytorch-3dunet's Normalize transform: [-1, 1] → original μ range.
+
+    pytorch-3dunet's Normalize maps a volume v to [-1, 1] as:
+        v_norm = 2 * (v - pmin) / (pmax - pmin) - 1
+
+    where pmin = percentile(v, 1) and pmax = percentile(v, 99.6) of the raw
+    (FDK input) volume.  Rearranging for v:
+        v = (v_norm + 1) / 2 * (pmax - pmin) + pmin
+
+    The percentiles are taken from the *raw* (FDK) dataset, not the label,
+    because the network is trained to predict in the raw input's normalised
+    space.  postprocess_predictions.py must re-read those same raw stats from
+    the source HDF5 file to invert exactly.
+
+    Using 1st/99.6th percentiles (rather than min/max) makes the scaling
+    robust to isolated outlier voxels in the FDK reconstruction.
+    """
     return (pred_norm + 1.0) / 2.0 * (pmax - pmin) + pmin
 
 
@@ -66,12 +80,16 @@ def main():
             if "predictions" not in f:
                 print(f"  [MISSING 'predictions'] {pred_path.name} — skipping")
                 continue
+            # StandardPredictor stores predictions with an explicit channel dim:
+            # shape (1, Z, Y, X).  squeeze() removes it → (Z, Y, X).
             pred_norm = f["predictions"][:]    # (1, Z, Y, X) or (Z, Y, X)
 
         pred_norm = pred_norm.squeeze()        # → (Z, Y, X)
 
         # Re-read the raw volume to recover the pmin/pmax used during Normalize.
         # (pytorch-3dunet's Normalize uses np.percentile(raw, 1) and (99.6))
+        # These stats come from the *raw* dataset (FDK input), not the label,
+        # because the network output is in the raw's normalised coordinate space.
         if raw_h5.exists():
             with h5py.File(raw_h5, "r") as f:
                 raw = f["raw"][:]
