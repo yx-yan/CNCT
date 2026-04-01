@@ -22,7 +22,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
-from config import DATA_DIR, FDK_DIR, EVAL_DIR, MAX_CASES, IMAGE_DPI, SAVE_PNG
+from config import DATA_DIR, FDK_DIR, EVAL_DIR, MAX_CASES, CASE_START, CASE_END, IMAGE_DPI, SAVE_PNG
 from geometry import hu_to_mu
 
 
@@ -92,7 +92,7 @@ def save_comparison(gt, recon, dVoxel, case_out, case_name):
 # Main evaluation loop
 # ---------------------------------------------------------------------------
 
-cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))[:MAX_CASES]
+cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))[:MAX_CASES][CASE_START:CASE_END]
 print(f"Found {len(cases)} cases\n")
 
 results = []

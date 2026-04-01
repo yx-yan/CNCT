@@ -13,6 +13,10 @@ module purge
 module load GCC/11.4.0 CUDA/12.3.0 Miniconda3/25.5.1-0
 conda activate fyp
 
+PROJECT_ROOT="/home/n2500633e/CNCT"
+cd "$PROJECT_ROOT"
+export PYTHONPATH=$PROJECT_ROOT:$PYTHONPATH
+
 echo "GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader)"
 python -c "
 from config import *
@@ -21,9 +25,6 @@ for k,v in dict(N_ANGLES=N_ANGLES, ACCURACY=ACCURACY, FDK_FILTER=FDK_FILTER,
     MU_WATER=MU_WATER, MAX_CASES=MAX_CASES, SAVE_PNG=SAVE_PNG, SAVE_NII=SAVE_NII).items():
     print(f'  {k}: {v}')
 "
-
-cd "$SLURM_SUBMIT_DIR"
-export PYTHONPATH=$SLURM_SUBMIT_DIR:$PYTHONPATH
 
 PROJ_DIR=$(python -c "from config import PROJ_DIR; print(PROJ_DIR)")
 FDK_DIR=$(python -c "from config import FDK_DIR; print(FDK_DIR)")

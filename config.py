@@ -12,6 +12,8 @@ PROJ_DIR  = "/projects/CTdata/projection60"   # projection.py output
 FDK_DIR   = "/projects/CTdata/fdk60"          # fdk.py output
 EVAL_DIR  = "/projects/CTdata/evaluation60"   # evaluation.py output
 MAX_CASES = 100          # max number of cases to process; None = all cases
+CASE_START = 0           # start index (inclusive) into the sorted case list
+CASE_END   = None        # end index (exclusive); None = through the last case
 
 # --- Acquisition ---
 N_ANGLES = 60          # number of projection angles (full 360°)
@@ -27,7 +29,7 @@ DETECTOR_COL_MARGIN = 1.5   # dDetector[1] *= this to prevent truncation artifac
 ACCURACY = 0.5           # tigre.Ax ray-integration step size in voxels (lower = finer steps, more accurate but slower)
 
 # --- FDK reconstruction ---
-FDK_FILTER = "shepp_logan"  # filter for FDK backprojection: "ram_lak" | "shepp_logan" | "cosine" | "hamming" | "hann"
+FDK_FILTER = "ram_lak"  # filter for FDK backprojection: "ram_lak" | "shepp_logan" | "cosine" | "hamming" | "hann"
 
 # --- HU → linear attenuation conversion ---
 MU_WATER = 0.02          # mm⁻¹, linear attenuation of water at ~70 keV

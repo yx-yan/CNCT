@@ -5,7 +5,8 @@
 #SBATCH --time=24:00:00
 #SBATCH --gpus=2
 #SBATCH --constraint=gpu_48g
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
 
 echo "Job $SLURM_JOB_ID on $(hostname) — $(date)"
 
@@ -15,14 +16,14 @@ conda activate fyp
 
 set -e
 
-export PYTHONPATH=/home/n2500633e/pytorch-3dunet:$SLURM_SUBMIT_DIR:$PYTHONPATH
+PROJECT_ROOT="/home/n2500633e/CNCT"
+cd "$PROJECT_ROOT"
+export PYTHONPATH=/home/n2500633e/pytorch-3dunet:$PROJECT_ROOT:$PYTHONPATH
 export CUDA_VISIBLE_DEVICES=0
 export TQDM_DISABLE=1
 
 echo "GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader)"
 echo "Torch: $(python -c 'import torch; print(torch.__version__, "| CUDA:", torch.version.cuda)')"
-
-cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs
 
 # Uncomment on first run to build HDF5 dataset:

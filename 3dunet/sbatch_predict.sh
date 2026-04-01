@@ -13,11 +13,11 @@ module purge
 module load GCC/11.4.0 CUDA/12.3.0 Miniconda3/25.5.1-0
 conda activate fyp
 
-export PYTHONPATH=/home/n2500633e/pytorch-3dunet:$SLURM_SUBMIT_DIR:$PYTHONPATH
+PROJECT_ROOT="/home/n2500633e/CNCT"
+cd "$PROJECT_ROOT"
+export PYTHONPATH=/home/n2500633e/pytorch-3dunet:$PROJECT_ROOT:$PYTHONPATH
 
 echo "GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader)"
-
-cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs
 
 echo "Inference — test_config.yaml"

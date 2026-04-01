@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 
 from config import (
     DATA_DIR, PROJ_DIR, FDK_DIR, N_ANGLES, MAX_CASES,
+    CASE_START, CASE_END,
     MU_WATER, IMAGE_DPI, FDK_FILTER, SAVE_PNG, SAVE_NII,
 )
 from geometry import build_geometry, load_nifti_as_tigre, mu_to_hu
@@ -30,7 +31,7 @@ from geometry import build_geometry, load_nifti_as_tigre, mu_to_hu
 # Must match the angles used in projection.py
 angles = np.linspace(0, 2 * np.pi, N_ANGLES, endpoint=False)
 
-cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))[:MAX_CASES]
+cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))[:MAX_CASES][CASE_START:CASE_END]
 print(f"Found {len(cases)} cases: {[os.path.basename(c) for c in cases]}\n")
 
 

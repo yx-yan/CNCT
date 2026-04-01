@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 
 from config import (
     DATA_DIR, PROJ_DIR, N_ANGLES, MAX_CASES,
+    CASE_START, CASE_END,
     PROJ_SAVE_EVERY, IMAGE_DPI, SAVE_PNG,
 )
 from geometry import build_geometry, hu_to_mu
@@ -30,7 +31,7 @@ from geometry import build_geometry, hu_to_mu
 # Projection angles: uniform 360-degree coverage
 angles = np.linspace(0, 2 * np.pi, N_ANGLES, endpoint=False)
 
-cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))[:MAX_CASES]
+cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))[:MAX_CASES][CASE_START:CASE_END]
 print(f"Found {len(cases)} cases: {[os.path.basename(c) for c in cases]}\n")
 
 for nii_path in cases:
