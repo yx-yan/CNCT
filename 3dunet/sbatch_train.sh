@@ -13,8 +13,11 @@ module purge
 module load GCC/11.4.0 CUDA/12.3.0 Miniconda3/25.5.1-0
 conda activate fyp
 
-export PYTHONPATH=/home/n2500633e/pytorch-3dunet:$PYTHONPATH
+set -e
+
+export PYTHONPATH=/home/n2500633e/pytorch-3dunet:$SLURM_SUBMIT_DIR:$PYTHONPATH
 export CUDA_VISIBLE_DEVICES=0
+export TQDM_DISABLE=1
 
 echo "GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader)"
 echo "Torch: $(python -c 'import torch; print(torch.__version__, "| CUDA:", torch.version.cuda)')"
@@ -23,9 +26,9 @@ cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs
 
 # Uncomment on first run to build HDF5 dataset:
-# python prepare_data.py
+# python 3dunet/prepare_data.py
 
 echo "Training — train_config.yaml"
-python run_train.py --config train_config.yaml
+python 3dunet/run_train.py --config 3dunet/train_config.yaml 2>&1
 
 echo "Done at $(date) (${SECONDS}s)"

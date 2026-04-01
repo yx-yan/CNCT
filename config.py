@@ -11,7 +11,7 @@ DATA_DIR  = "/projects/CTdata/AbdomenCT-1K-ImagePart1"
 PROJ_DIR  = "/projects/CTdata/projection60"   # projection.py output
 FDK_DIR   = "/projects/CTdata/fdk60"          # fdk.py output
 EVAL_DIR  = "/projects/CTdata/evaluation60"   # evaluation.py output
-MAX_CASES = 400          # max number of cases to process; None = all cases
+MAX_CASES = 100          # max number of cases to process; None = all cases
 
 # --- Acquisition ---
 N_ANGLES = 60          # number of projection angles (full 360°)

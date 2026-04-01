@@ -3,6 +3,11 @@
 # Units: both raw and label are stored in linear attenuation (μ, mm⁻¹)
 #        after prepare_data.py runs; Normalize maps each to [-1, 1].
 
+# ── Reproducibility ────────────────────────────────────────────────────────
+# Seeds Python random, NumPy, and PyTorch (CPU+CUDA); enables CuDNN
+# deterministic mode.  Set to null to disable.
+manual_seed: 42
+
 model:
   name: UNet3D
   in_channels: 1
@@ -72,6 +77,10 @@ loaders:
   # Worker processes each load entire volumes to compute normalization stats,
   # so even num_workers=4 caused OOM on the 64 GB node (job 52330).
   num_workers: 0
+  # ── Subset mode ────────────────────────────────────────────────────────
+  # Limit the number of H5 volumes loaded per phase for rapid debugging.
+  # Set to null to use all available volumes.
+  sample_subset_size: 5    # e.g. 5 to train on only 5 volumes
   raw_internal_path: raw
   label_internal_path: label
   # global_normalization=false: each volume is normalised with its own
@@ -103,6 +112,12 @@ loaders:
 
     transformer:
       raw:
+        # ── Spatial downsampling (512→256 in Y,X) ──────────────────────
+        # Trilinear for raw data preserves smooth intensity gradients.
+        # Set scale_factor to 1.0 (or remove this block) to disable.
+        - name: SpatialDownsample
+          scale_factor: 0.5
+          mode: trilinear
         - name: Normalize           # per-volume min-max → [-1, 1]
         - name: RandomFlip
         - name: RandomRotate90
@@ -118,6 +133,10 @@ loaders:
         - name: ToTensor
           expand_dims: true         # adds channel dim: (Z,Y,X) → (1,Z,Y,X)
       label:
+        # Nearest-neighbor for labels preserves exact attenuation values.
+        - name: SpatialDownsample
+          scale_factor: 0.5
+          mode: nearest
         - name: Normalize
         - name: RandomFlip
         - name: RandomRotate90
@@ -141,10 +160,16 @@ loaders:
 
     transformer:
       raw:
+        - name: SpatialDownsample
+          scale_factor: 0.5
+          mode: trilinear
         - name: Normalize
         - name: ToTensor
           expand_dims: true
       label:
+        - name: SpatialDownsample
+          scale_factor: 0.5
+          mode: nearest
         - name: Normalize
         - name: ToTensor
           expand_dims: true

@@ -23,6 +23,7 @@ for k,v in dict(N_ANGLES=N_ANGLES, ACCURACY=ACCURACY, FDK_FILTER=FDK_FILTER,
 "
 
 cd "$SLURM_SUBMIT_DIR"
+export PYTHONPATH=$SLURM_SUBMIT_DIR:$PYTHONPATH
 
 PROJ_DIR=$(python -c "from config import PROJ_DIR; print(PROJ_DIR)")
 FDK_DIR=$(python -c "from config import FDK_DIR; print(FDK_DIR)")
@@ -31,7 +32,7 @@ EVAL_DIR=$(python -c "from config import EVAL_DIR; print(EVAL_DIR)")
 # Stage 1: Forward projection
 echo "Stage 1/3 — projection.py"
 T0=$SECONDS
-python projection.py
+python fdk/projection.py
 echo "  Done in $((SECONDS - T0))s"
 
 for f in "$PROJ_DIR"/*/projections.npy; do
@@ -41,7 +42,7 @@ done
 # Stage 2: FDK reconstruction
 echo "Stage 2/3 — fdk.py"
 T0=$SECONDS
-python fdk.py
+python fdk/fdk.py
 echo "  Done in $((SECONDS - T0))s"
 
 for f in "$FDK_DIR"/*/recon_fdk.npy; do
@@ -51,7 +52,7 @@ done
 # Stage 3: Evaluation
 echo "Stage 3/3 — evaluation.py"
 T0=$SECONDS
-python evaluation.py
+python fdk/evaluation.py
 echo "  Done in $((SECONDS - T0))s"
 
 CSV="$EVAL_DIR/evaluation_results.csv"
