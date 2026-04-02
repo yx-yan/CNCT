@@ -26,4 +26,7 @@ python -m pytorch3dunet.predict --config 3dunet/test_config.yaml
 echo "Postprocessing predictions"
 python 3dunet/postprocess_predictions.py
 
+echo "Evaluating predictions (PSNR, SSIM, comparison PNGs)"
+python 3dunet/evaluation.py
+
 echo "Done at $(date) (${SECONDS}s)"

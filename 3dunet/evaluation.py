@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Evaluate FDK reconstructions against ground-truth CT volumes.
+"""Evaluate 3D UNet predictions against ground-truth CT volumes.
 
-Pipeline stage 3/3.  For each case with recon_fdk.npy in FDK_DIR:
-  1. Load the ground-truth NIfTI and convert HU to mu (same units as FDK)
+For each postprocessed prediction (<CaseID>_recon.npy) in PRED_DIR:
+  1. Load the ground-truth NIfTI and convert HU to mu (same units as prediction)
   2. Compute volumetric PSNR and mean per-slice SSIM
-  3. Optionally save side-by-side comparison images (GT vs FDK vs difference)
+  3. Optionally save side-by-side comparison images (GT vs UNet vs difference)
   4. Write a CSV summary of all evaluated cases
 
-Input:  FDK_DIR/<case>/recon_fdk.npy  (from fdk.py)
-Output: EVAL_DIR/evaluation_results.csv
+Input:  /projects/CTdata/3dunet_predictions/<CaseID>_recon.npy  (from postprocess_predictions.py)
+Output: UNET_EVAL_DIR/evaluation_results.csv
+        UNET_EVAL_DIR/<CaseID>/eval_{axial,coronal,sagittal}.png  (if SAVE_PNG)
 """
 
 import os
@@ -17,33 +18,36 @@ import csv
 
 import numpy as np
 
-from config import DATA_DIR, FDK_DIR, EVAL_DIR, MAX_CASES, CASE_START, CASE_END, IMAGE_DPI, SAVE_PNG
+from config import DATA_DIR, UNET_EVAL_DIR, IMAGE_DPI, SAVE_PNG
 from eval_utils import load_gt_as_mu, compute_psnr_ssim, save_comparison
+
+
+PRED_DIR = "/projects/CTdata/3dunet_predictions"
 
 
 # ---------------------------------------------------------------------------
 # Main evaluation loop
 # ---------------------------------------------------------------------------
 
-cases = sorted(glob.glob(os.path.join(DATA_DIR, "*.nii.gz")))[:MAX_CASES][CASE_START:CASE_END]
-print(f"Found {len(cases)} cases\n")
+pred_files = sorted(glob.glob(os.path.join(PRED_DIR, "*_recon.npy")))
+print(f"Found {len(pred_files)} prediction file(s) in {PRED_DIR}\n")
 
 results = []
 
-for nii_path in cases:
-    case_name = os.path.basename(nii_path).replace("_0000.nii.gz", "")
-    recon_path = os.path.join(FDK_DIR, case_name, "recon_fdk.npy")
-    case_out = os.path.join(EVAL_DIR, case_name)
+for pred_path in pred_files:
+    case_name = os.path.basename(pred_path).replace("_predictions_recon.npy", "")
+    nii_path = os.path.join(DATA_DIR, f"{case_name}_0000.nii.gz")
+    case_out = os.path.join(UNET_EVAL_DIR, case_name)
 
-    if not os.path.exists(recon_path):
-        print(f"  Skipping {case_name} — recon_fdk.npy not found")
+    if not os.path.exists(nii_path):
+        print(f"  Skipping {case_name} — NIfTI not found at {nii_path}")
         continue
 
     print(f"=== Evaluating {case_name} ===")
 
     gt, dVoxel = load_gt_as_mu(nii_path)
-    recon = np.load(recon_path).astype(np.float32)
-    print(f"  GT shape: {gt.shape}, Recon shape: {recon.shape}")
+    recon = np.load(pred_path).astype(np.float32)
+    print(f"  GT shape: {gt.shape}, Prediction shape: {recon.shape}")
 
     if gt.shape != recon.shape:
         print(f"  WARNING: shape mismatch — skipping metrics")
@@ -55,13 +59,13 @@ for nii_path in cases:
 
     if SAVE_PNG:
         os.makedirs(case_out, exist_ok=True)
-        save_comparison(gt, recon, dVoxel, case_out, case_name, "FDK Reconstruction", IMAGE_DPI)
+        save_comparison(gt, recon, dVoxel, case_out, case_name, "UNet Prediction", IMAGE_DPI)
         print(f"  Comparison images saved to {case_out}/")
 
 # --- CSV summary ---
 if results:
-    os.makedirs(EVAL_DIR, exist_ok=True)
-    csv_path = os.path.join(EVAL_DIR, "evaluation_results.csv")
+    os.makedirs(UNET_EVAL_DIR, exist_ok=True)
+    csv_path = os.path.join(UNET_EVAL_DIR, "evaluation_results.csv")
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["case", "psnr_db", "ssim"])
         writer.writeheader()

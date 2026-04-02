@@ -18,6 +18,7 @@ output/
 
 # Logs
 logs/
+**/logs/
 
 # Claude Code
 .claudeignore

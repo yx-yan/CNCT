@@ -27,7 +27,7 @@ echo "Torch: $(python -c 'import torch; print(torch.__version__, "| CUDA:", torc
 mkdir -p logs
 
 # Uncomment on first run to build HDF5 dataset:
-# python 3dunet/prepare_data.py
+python 3dunet/prepare_data.py
 
 echo "Training — train_config.yaml"
 python 3dunet/run_train.py --config 3dunet/train_config.yaml 2>&1

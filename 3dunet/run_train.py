@@ -58,7 +58,33 @@ import pytorch3dunet.augment.transforms as aug_transforms  # noqa: E402
 import pytorch3dunet.datasets.hdf5 as hdf5_module  # noqa: E402
 from pytorch3dunet.unet3d import utils as _u3d_utils  # noqa: E402
 from pytorch3dunet.unet3d.config import copy_config, load_config  # noqa: E402
+from pytorch3dunet.unet3d import model as _model_module  # noqa: E402
+from pytorch3dunet.unet3d import trainer as _trainer_module  # noqa: E402
 from pytorch3dunet.unet3d.trainer import create_trainer  # noqa: E402
+
+# ── Custom model override ─────────────────────────────────────────────────────
+# Import our ResidualUNet3D and patch get_model so the library instantiates it
+# instead of its own UNet3D when the config says name: ResidualUNet3D.
+import sys, os  # noqa: E402
+sys.path.insert(0, os.path.dirname(__file__))
+from unet3d_model import ResidualUNet3D  # noqa: E402
+
+_original_get_model = _model_module.get_model
+
+
+def _patched_get_model(model_config):
+    model_config = dict(model_config)
+    name = model_config.pop("name")
+    if name == "ResidualUNet3D":
+        valid_keys = {"in_channels", "out_channels", "f_maps", "num_groups"}
+        filtered = {k: v for k, v in model_config.items() if k in valid_keys}
+        logging.getLogger("run_train").info(f"Using custom ResidualUNet3D with {filtered}")
+        return ResidualUNet3D(**filtered)
+    return _original_get_model({"name": name, **model_config})
+
+
+_model_module.get_model = _patched_get_model
+_trainer_module.get_model = _patched_get_model
 
 # Remove per-logger handlers added by get_logger() — root handler is enough.
 # This prevents every message from appearing twice.
