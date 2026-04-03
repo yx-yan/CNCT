@@ -76,7 +76,7 @@ def _patched_get_model(model_config):
     model_config = dict(model_config)
     name = model_config.pop("name")
     if name == "ResidualUNet3D":
-        valid_keys = {"in_channels", "out_channels", "f_maps", "num_groups"}
+        valid_keys = {"in_channels", "out_channels", "f_maps", "num_groups", "use_checkpoint"}
         filtered = {k: v for k, v in model_config.items() if k in valid_keys}
         logging.getLogger("run_train").info(f"Using custom ResidualUNet3D with {filtered}")
         return ResidualUNet3D(**filtered)

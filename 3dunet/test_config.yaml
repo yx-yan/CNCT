@@ -6,7 +6,7 @@
 model_path: /projects/CTdata/3dunet_checkpoints/best_checkpoint.pytorch
 
 model:
-  name: UNet3D
+  name: ResidualUNet3D
   in_channels: 1
   out_channels: 1
   layer_order: gcr
@@ -23,7 +23,7 @@ loaders:
   num_workers: 4
   raw_internal_path: raw
   output_dir: /projects/CTdata/3dunet_predictions
-  global_normalization: true
+  global_normalization: false
 
   test:
     file_paths:
@@ -38,5 +38,7 @@ loaders:
     transformer:
       raw:
         - name: Normalize
+          min_value: -0.02
+          max_value: 0.08
         - name: ToTensor
           expand_dims: true

@@ -29,23 +29,22 @@ H5_TEST   = "/projects/CTdata/h5_3dunet/test"
 MU_WATER  = 0.02   # mm-1
 
 
-def normalize_inverse(pred_norm: np.ndarray, pmin: float, pmax: float) -> np.ndarray:
-    """Invert pytorch-3dunet's Normalize transform: [-1, 1] → original μ range.
+# Fixed normalization range — must match train_config.yaml / test_config.yaml.
+NORM_MIN = -0.02
+NORM_MAX =  0.08
 
-    pytorch-3dunet's Normalize maps a volume v to [-1, 1] as:
+
+def normalize_inverse(pred_norm: np.ndarray, pmin: float, pmax: float) -> np.ndarray:
+    """Invert the fixed-range Normalize transform: [-1, 1] → original μ range.
+
+    The Normalize transform maps μ values to [-1, 1] as:
         v_norm = 2 * (v - pmin) / (pmax - pmin) - 1
 
-    where pmin = percentile(v, 1) and pmax = percentile(v, 99.6) of the raw
-    (FDK input) volume.  Rearranging for v:
+    Rearranging for v:
         v = (v_norm + 1) / 2 * (pmax - pmin) + pmin
 
-    The percentiles are taken from the *raw* (FDK) dataset, not the label,
-    because the network is trained to predict in the raw input's normalised
-    space.  postprocess_predictions.py must re-read those same raw stats from
-    the source HDF5 file to invert exactly.
-
-    Using 1st/99.6th percentiles (rather than min/max) makes the scaling
-    robust to isolated outlier voxels in the FDK reconstruction.
+    pmin and pmax are fixed constants (NORM_MIN, NORM_MAX) shared across all
+    volumes, raw, and label — ensuring residual learning consistency.
     """
     return (pred_norm + 1.0) / 2.0 * (pmax - pmin) + pmin
 
@@ -86,20 +85,8 @@ def main():
 
         pred_norm = pred_norm.squeeze()        # → (Z, Y, X)
 
-        # Re-read the raw volume to recover the pmin/pmax used during Normalize.
-        # (pytorch-3dunet's Normalize uses np.percentile(raw, 1) and (99.6))
-        # These stats come from the *raw* dataset (FDK input), not the label,
-        # because the network output is in the raw's normalised coordinate space.
-        if raw_h5.exists():
-            with h5py.File(raw_h5, "r") as f:
-                raw = f["raw"][:]
-            pmin = float(np.percentile(raw, 1))
-            pmax = float(np.percentile(raw, 99.6))
-            pred_mu = normalize_inverse(pred_norm, pmin, pmax)
-        else:
-            print(f"  [WARNING] raw HDF5 not found for {case_id}; "
-                  f"saving normalised output as-is ([-1,1] range)")
-            pred_mu = pred_norm
+        # Invert the fixed-range normalization (same constants as train/test YAML).
+        pred_mu = normalize_inverse(pred_norm, NORM_MIN, NORM_MAX)
 
         np.save(out_path, pred_mu.astype(np.float32))
         print(f"  Saved {out_path.name}  shape={pred_mu.shape}  "

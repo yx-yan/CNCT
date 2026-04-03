@@ -1,0 +1,67 @@
+# Full-volume 3D UNet training config
+# Standalone trainer — does NOT use the pytorch-3dunet library.
+#
+# Key differences from train_config.yaml (patch-based):
+#   - Entire volumes are resized to target_shape instead of patch extraction
+#   - AMP (mixed precision) for memory efficiency
+#   - Gradient checkpointing to reduce activation memory
+#   - Correct loss: computed on output (input - artifacts), not raw artifacts
+#
+# Memory estimate for target_shape [128, 256, 256] with AMP + checkpointing:
+#   ~1.5 GB VRAM — fits easily in 48 GB.
+
+manual_seed: 42
+
+model:
+  name: ResidualUNet3D
+  in_channels: 1
+  out_channels: 1
+  f_maps: [16, 32, 64, 128, 256]
+  num_groups: 8
+  use_checkpoint: true       # gradient checkpointing (saves ~60% activation memory)
+
+training:
+  target_shape: [128, 256, 256]   # (D, H, W) — all volumes resized to this
+  amp: true                        # mixed precision (fp16 forward, fp32 master weights)
+
+  checkpoint_dir: /projects/CTdata/3dunet_checkpoints_fullvol
+  resume: null                     # set to checkpoint path to resume
+  pre_trained: null                # set to load weights only (no optimizer state)
+
+  max_num_epochs: 200
+  max_num_iterations: 150000
+  validate_after_iters: 500
+  log_after_iters: 100
+  eval_score_higher_is_better: true  # PSNR: higher is better
+
+optimizer:
+  learning_rate: 0.0002
+  weight_decay: 0.00001
+
+loss:
+  name: SmoothL1Loss
+
+eval_metric:
+  name: PSNR
+
+lr_scheduler:
+  name: ReduceLROnPlateau
+  mode: max          # PSNR — higher is better
+  factor: 0.5        # halve LR on plateau
+  patience: 10       # 10 validation rounds with no improvement
+
+data:
+  train_dir: /projects/CTdata/h5_3dunet/train
+  val_dir: /projects/CTdata/h5_3dunet/val
+  test_dir: /projects/CTdata/h5_3dunet/test
+  norm_min: -0.02     # μ range lower bound (matches train_config.yaml)
+  norm_max: 0.08      # μ range upper bound
+  num_workers: 0      # 0 avoids OOM from worker processes loading full volumes
+  sample_subset_size: null   # set to e.g. 5 for rapid debugging
+
+augmentation:
+  random_flip: true
+  random_rotate90: true
+  random_rotate:
+    enabled: true
+    angle_spectrum: 20   # degrees, ZY plane only (avoids mixing anisotropic Z axis)

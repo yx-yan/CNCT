@@ -65,6 +65,7 @@ It produces ~5.6M trainable parameters with the default feature map sizes.
 
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint as grad_checkpoint
 
 
 # =============================================================================
@@ -220,8 +221,11 @@ class Encoder(nn.Module):
         Number of groups for GroupNorm in each ConvBlock.
     """
 
-    def __init__(self, in_channels: int, feature_maps: list[int], num_groups: int = 8):
+    def __init__(self, in_channels: int, feature_maps: list[int], num_groups: int = 8,
+                 use_checkpoint: bool = False):
         super().__init__()
+
+        self.use_checkpoint = use_checkpoint
 
         # ModuleLists let PyTorch track these layers for .parameters(),
         # .to(device), .train()/.eval(), state_dict, etc.
@@ -260,13 +264,11 @@ class Encoder(nn.Module):
         skip_connections = []
 
         for stage, pool in zip(self.stages, self.pools):
-            # Extract features at this resolution level
-            x = stage(x)
-            # Save the full-resolution features for the decoder skip connection.
-            # This is the defining characteristic of U-Net — without these,
-            # the decoder would have to hallucinate all spatial detail.
+            if self.use_checkpoint and self.training:
+                x = grad_checkpoint(stage, x, use_reentrant=False)
+            else:
+                x = stage(x)
             skip_connections.append(x)
-            # Downsample: halve D, H, W — doubles the effective receptive field
             x = pool(x)
 
         return x, skip_connections
@@ -310,8 +312,11 @@ class Bottleneck(nn.Module):
         Number of groups for GroupNorm in the ConvBlock.
     """
 
-    def __init__(self, in_channels: int, out_channels: int, num_groups: int = 8):
+    def __init__(self, in_channels: int, out_channels: int, num_groups: int = 8,
+                 use_checkpoint: bool = False):
         super().__init__()
+
+        self.use_checkpoint = use_checkpoint
 
         ### [INSERT VGGT MODULE HERE IN THE FUTURE] ###
         # Replace or wrap self.block with a Vision Graph Guiding Transformer
@@ -337,6 +342,8 @@ class Bottleneck(nn.Module):
             dimensions, but channel count changes (e.g. 128 → 256).
         """
         ### [INSERT VGGT MODULE HERE IN THE FUTURE] ###
+        if self.use_checkpoint and self.training:
+            return grad_checkpoint(self.block, x, use_reentrant=False)
         return self.block(x)
 
 
@@ -386,9 +393,11 @@ class Decoder(nn.Module):
         Number of groups for GroupNorm in each ConvBlock.
     """
 
-    def __init__(self, feature_maps: list[int], bottleneck_channels: int, num_groups: int = 8):
+    def __init__(self, feature_maps: list[int], bottleneck_channels: int, num_groups: int = 8,
+                 use_checkpoint: bool = False):
         super().__init__()
 
+        self.use_checkpoint = use_checkpoint
         self.upconvs = nn.ModuleList()  # Transposed convolutions for upsampling
         self.stages = nn.ModuleList()   # ConvBlocks for feature fusion
 
@@ -478,7 +487,10 @@ class Decoder(nn.Module):
             # Step 4: Fuse the concatenated features with the ConvBlock.
             # Reduces 2*num_features back to num_features while integrating
             # the encoder's local detail with the decoder's global context.
-            x = stage(x)
+            if self.use_checkpoint and self.training:
+                x = grad_checkpoint(stage, x, use_reentrant=False)
+            else:
+                x = stage(x)
 
         return x
 
@@ -544,6 +556,7 @@ class ResidualUNet3D(nn.Module):
         out_channels: int = 1,
         f_maps: tuple[int, ...] = (16, 32, 64, 128, 256),
         num_groups: int = 8,
+        use_checkpoint: bool = False,
     ):
         super().__init__()
 
@@ -576,17 +589,17 @@ class ResidualUNet3D(nn.Module):
         # --- Encoder ---
         # Progressively downsamples spatial dimensions while increasing
         # feature channels: [1]→[16]→[32]→[64]→[128]
-        self.encoder = Encoder(in_channels, encoder_maps, num_groups)
+        self.encoder = Encoder(in_channels, encoder_maps, num_groups, use_checkpoint)
 
         # --- Bottleneck ---
         # Processes the most compressed representation: [128]→[256]
         # Future VGGT module would be integrated here.
-        self.bottleneck = Bottleneck(bottleneck_in, bottleneck_out, num_groups)
+        self.bottleneck = Bottleneck(bottleneck_in, bottleneck_out, num_groups, use_checkpoint)
 
         # --- Decoder ---
         # Progressively upsamples back to original resolution while
         # decreasing feature channels: [256]→[128]→[64]→[32]→[16]
-        self.decoder = Decoder(encoder_maps, bottleneck_out, num_groups)
+        self.decoder = Decoder(encoder_maps, bottleneck_out, num_groups, use_checkpoint)
 
         # --- Final 1×1×1 convolution ---
         # Maps the decoder's feature channels to the output channel count.
@@ -599,7 +612,15 @@ class ResidualUNet3D(nn.Module):
             kernel_size=1,    # pointwise convolution — no spatial mixing
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Gradient checkpointing is incompatible with inplace ReLU — the
+        # recomputation during backward reads the (already overwritten) input.
+        # Disable inplace on all ReLU modules when checkpointing is active.
+        if use_checkpoint:
+            for m in self.modules():
+                if isinstance(m, nn.ReLU):
+                    m.inplace = False
+
+    def forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
         """Forward pass: predict artifacts and subtract from input.
 
         The complete data flow for a [1, 1, 64, 128, 128] input patch:
@@ -670,7 +691,12 @@ class ResidualUNet3D(nn.Module):
         # Clean_Image = Input_FDK - Predicted_Artifacts
         # If the network predicts zero everywhere, the input passes through
         # unchanged — this is the safe default the network starts near.
-        return residual - artifacts
+        output = residual - artifacts
+
+        if kwargs.get("return_logits", False):
+            return output, artifacts
+
+        return output
 
 
 # =============================================================================
@@ -692,3 +718,12 @@ if __name__ == "__main__":
     print(f"Output: {y.shape}")
     assert x.shape == y.shape, "Shape mismatch!"
     print("OK — input and output shapes match.")
+
+    # Test with gradient checkpointing enabled
+    model_ckpt = ResidualUNet3D(in_channels=1, out_channels=1, use_checkpoint=True).to(device)
+    model_ckpt.train()
+    x2 = torch.randn(1, 1, 64, 128, 128, device=device, requires_grad=True)
+    y2 = model_ckpt(x2)
+    y2.sum().backward()
+    assert x2.shape == y2.shape, "Shape mismatch with checkpointing!"
+    print("OK — gradient checkpointing forward+backward passed.")

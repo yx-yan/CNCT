@@ -80,7 +80,7 @@ loaders:
   # ── Subset mode ────────────────────────────────────────────────────────
   # Limit the number of H5 volumes loaded per phase for rapid debugging.
   # Set to null to use all available volumes.
-  sample_subset_size: 5    # e.g. 5 to train on only 5 volumes
+  sample_subset_size: null    # e.g. 5 to train on only 5 volumes
   raw_internal_path: raw
   label_internal_path: label
   # global_normalization=false: each volume is normalised with its own
@@ -118,7 +118,15 @@ loaders:
         - name: SpatialDownsample
           scale_factor: 0.5
           mode: trilinear
-        - name: Normalize           # per-volume min-max → [-1, 1]
+        # Fixed-range Normalize: map μ values to [-1, 1] using the SAME
+        # min/max for both raw and label.  This is essential for residual
+        # learning (output = input - artifacts) — both tensors must share
+        # the same scale.  The range [-0.02, 0.08] covers the full μ range:
+        #   air ≈ 0, water ≈ 0.02, bone ≈ 0.04-0.08 mm⁻¹
+        #   FDK streak artifacts can go slightly negative (~-0.02)
+        - name: Normalize
+          min_value: -0.02
+          max_value: 0.08
         - name: RandomFlip
         - name: RandomRotate90
         # RandomRotate only in the ZY plane (axes=[2,1] = Y and X axes of the
@@ -137,7 +145,10 @@ loaders:
         - name: SpatialDownsample
           scale_factor: 0.5
           mode: nearest
+        # Same fixed range as raw — critical for residual learning.
         - name: Normalize
+          min_value: -0.02
+          max_value: 0.08
         - name: RandomFlip
         - name: RandomRotate90
         - name: RandomRotate
@@ -164,6 +175,8 @@ loaders:
           scale_factor: 0.5
           mode: trilinear
         - name: Normalize
+          min_value: -0.02
+          max_value: 0.08
         - name: ToTensor
           expand_dims: true
       label:
@@ -171,5 +184,7 @@ loaders:
           scale_factor: 0.5
           mode: nearest
         - name: Normalize
+          min_value: -0.02
+          max_value: 0.08
         - name: ToTensor
           expand_dims: true

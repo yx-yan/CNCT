@@ -12,6 +12,7 @@ Output: UNET_EVAL_DIR/evaluation_results.csv
         UNET_EVAL_DIR/<CaseID>/eval_{axial,coronal,sagittal}.png  (if SAVE_PNG)
 """
 
+import argparse
 import os
 import glob
 import csv
@@ -24,6 +25,14 @@ from eval_utils import load_gt_as_mu, compute_psnr_ssim, save_comparison
 
 PRED_DIR = "/projects/CTdata/3dunet_predictions"
 
+_parser = argparse.ArgumentParser()
+_parser.add_argument("--pred_dir", default=PRED_DIR, help="Directory with *_recon.npy files")
+_parser.add_argument("--eval_dir", default=UNET_EVAL_DIR, help="Output directory for eval results")
+_args = _parser.parse_args()
+
+PRED_DIR = _args.pred_dir
+UNET_EVAL_DIR = _args.eval_dir
+
 
 # ---------------------------------------------------------------------------
 # Main evaluation loop
@@ -35,7 +44,7 @@ print(f"Found {len(pred_files)} prediction file(s) in {PRED_DIR}\n")
 results = []
 
 for pred_path in pred_files:
-    case_name = os.path.basename(pred_path).replace("_predictions_recon.npy", "")
+    case_name = os.path.basename(pred_path).replace("_predictions_recon.npy", "").replace("_recon.npy", "")
     nii_path = os.path.join(DATA_DIR, f"{case_name}_0000.nii.gz")
     case_out = os.path.join(UNET_EVAL_DIR, case_name)
 

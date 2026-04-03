@@ -21,7 +21,7 @@ echo "GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader)"
 mkdir -p logs
 
 echo "Inference — test_config.yaml"
-python -m pytorch3dunet.predict --config 3dunet/test_config.yaml
+python 3dunet/run_predict.py --config 3dunet/test_config.yaml
 
 echo "Postprocessing predictions"
 python 3dunet/postprocess_predictions.py
