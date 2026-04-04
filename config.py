@@ -8,16 +8,16 @@ so each run's settings are recorded in the log.
 
 # --- Paths ---
 DATA_DIR  = "/projects/CTdata/AbdomenCT-1K-ImagePart1"
-PROJ_DIR  = "/projects/CTdata/projection360"   # projection.py output
-FDK_DIR   = "/projects/CTdata/fdk360"          # fdk.py output
-EVAL_DIR  = "/projects/CTdata/evaluation360"   # evaluation.py output
+PROJ_DIR  = "/projects/CTdata/projection60"   # projection.py output
+FDK_DIR   = "/projects/CTdata/fdk60"          # fdk.py output
+EVAL_DIR  = "/projects/CTdata/evaluation60"   # evaluation.py output
 UNET_EVAL_DIR = "/projects/CTdata/unet_evaluation"  # 3dunet/evaluation.py output
 MAX_CASES = 5          # max number of cases to process; None = all cases
 CASE_START = 0           # start index (inclusive) into the sorted case list
 CASE_END   = None        # end index (exclusive); None = through the last case
 
 # --- Acquisition ---
-N_ANGLES = 360          # number of projection angles (full 360°)
+N_ANGLES = 60          # number of projection angles (full 360°)
 
 # --- Geometry scaling ---
 DSO_SCALE = 5            # DSO = max_radius * DSO_SCALE  (source outside object)
@@ -38,6 +38,12 @@ MU_WATER = 0.02          # mm⁻¹, linear attenuation of water at ~70 keV
 # --- Output ---
 SAVE_PNG = True          # projection.py and fdk.py never save PNGs
 SAVE_NII = False         # fdk.py never saves recon_fdk.nii.gz
+
+# --- Dual-Domain Cascade Network ---
+DUAL_DOMAIN_CHECKPOINT_DIR = "/projects/CTdata/dual_domain_checkpoints"
+SINO_OUT_FEATURES = 4              # Branch A output feature channels (backprojected by DBP)
+SINO_F_MAPS = [8, 16, 32]         # Branch A U-Net feature map sizes
+VOLUME_F_MAPS = [8, 16, 32, 64, 128]  # Branch B U-Net feature map sizes
 
 # --- Visualisation ---
 PROJ_SAVE_EVERY = 20     # save every Nth projection angle as PNG

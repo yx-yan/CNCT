@@ -19,7 +19,7 @@ import csv
 
 import numpy as np
 
-from config import DATA_DIR, UNET_EVAL_DIR, IMAGE_DPI, SAVE_PNG
+from config import DATA_DIR, FDK_DIR, UNET_EVAL_DIR, IMAGE_DPI, SAVE_PNG
 from eval_utils import load_gt_as_mu, compute_psnr_ssim, save_comparison
 
 
@@ -68,7 +68,13 @@ for pred_path in pred_files:
 
     if SAVE_PNG:
         os.makedirs(case_out, exist_ok=True)
-        save_comparison(gt, recon, dVoxel, case_out, case_name, "UNet Prediction", IMAGE_DPI)
+        fdk_path = os.path.join(FDK_DIR, case_name, "recon_fdk.npy")
+        fdk_input = np.load(fdk_path).astype(np.float32) if os.path.exists(fdk_path) else None
+        if fdk_input is not None and fdk_input.shape != gt.shape:
+            print(f"  WARNING: FDK input shape {fdk_input.shape} != GT shape {gt.shape} — omitting FDK panel")
+            fdk_input = None
+        save_comparison(gt, recon, dVoxel, case_out, case_name, "UNet Prediction", IMAGE_DPI,
+                        psnr=psnr, ssim=ssim, fdk_input=fdk_input)
         print(f"  Comparison images saved to {case_out}/")
 
 # --- CSV summary ---

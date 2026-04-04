@@ -66,8 +66,13 @@ def compute_psnr_ssim(gt, recon):
     return psnr, float(np.mean(ssim_scores))
 
 
-def save_comparison(gt, recon, dVoxel, case_out, case_name, recon_label, image_dpi):
-    """Save side-by-side GT vs reconstruction for axial, coronal, sagittal mid-slices.
+def save_comparison(gt, recon, dVoxel, case_out, case_name, recon_label, image_dpi,
+                    psnr=None, ssim=None, fdk_input=None):
+    """Save side-by-side comparison for axial, coronal, sagittal mid-slices.
+
+    When *fdk_input* is provided the layout is 1x4:
+        FDK Input | Ground Truth | <recon_label> | Absolute Difference
+    Otherwise falls back to the original 1x3 layout (GT | recon | diff).
 
     Parameters
     ----------
@@ -83,36 +88,69 @@ def save_comparison(gt, recon, dVoxel, case_out, case_name, recon_label, image_d
         Label for the reconstruction panel (e.g. "FDK Reconstruction" or "UNet Prediction").
     image_dpi : int
         DPI for saved PNGs.
+    psnr : float, optional
+        PSNR value to display in the suptitle.
+    ssim : float, optional
+        SSIM value to display in the suptitle.
+    fdk_input : ndarray, shape (Z, Y, X), optional
+        FDK reconstruction used as network input. When provided, shown as the
+        first panel and the layout widens to 4 columns.
     """
     dz, dy, dx = dVoxel
     nz, ny, nx = gt.shape
     vmin, vmax = np.percentile(gt, [1, 99])
 
-    slices = {
-        "axial":    (gt[nz // 2],           recon[nz // 2],           ny * dy, nx * dx),
-        "coronal":  (gt[:, ny // 2],        recon[:, ny // 2],        nz * dz, nx * dx),
-        "sagittal": (gt[:, :, nx // 2],     recon[:, :, nx // 2],     nz * dz, ny * dy),
+    has_fdk = fdk_input is not None
+    ncols = 4 if has_fdk else 3
+
+    slices_spec = {
+        "axial":    (nz // 2, None,      None,      ny * dy, nx * dx),
+        "coronal":  (None,    ny // 2,   None,      nz * dz, nx * dx),
+        "sagittal": (None,    None,      nx // 2,   nz * dz, ny * dy),
     }
-    for name, (gt_img, rec_img, phys_h, phys_w) in slices.items():
+    for name, (zi, yi, xi, phys_h, phys_w) in slices_spec.items():
+        if zi is not None:
+            gt_img, rec_img = gt[zi], recon[zi]
+            fdk_img = fdk_input[zi] if has_fdk else None
+        elif yi is not None:
+            gt_img, rec_img = gt[:, yi], recon[:, yi]
+            fdk_img = fdk_input[:, yi] if has_fdk else None
+        else:
+            gt_img, rec_img = gt[:, :, xi], recon[:, :, xi]
+            fdk_img = fdk_input[:, :, xi] if has_fdk else None
+
         panel_h = 5.0
         panel_w = phys_w / phys_h * panel_h
-        fig, axes = plt.subplots(1, 3, figsize=(3 * panel_w, panel_h))
+        fig, axes = plt.subplots(1, ncols, figsize=(ncols * panel_w, panel_h))
 
-        axes[0].imshow(gt_img, cmap="gray", vmin=vmin, vmax=vmax, aspect="auto")
-        axes[0].set_title("Ground Truth")
-        axes[0].axis("off")
+        col = 0
+        if has_fdk:
+            axes[col].imshow(fdk_img, cmap="gray", vmin=vmin, vmax=vmax, aspect="auto")
+            axes[col].set_title("FDK Input")
+            axes[col].axis("off")
+            col += 1
 
-        axes[1].imshow(rec_img, cmap="gray", vmin=vmin, vmax=vmax, aspect="auto")
-        axes[1].set_title(recon_label)
-        axes[1].axis("off")
+        axes[col].imshow(gt_img, cmap="gray", vmin=vmin, vmax=vmax, aspect="auto")
+        axes[col].set_title("Ground Truth")
+        axes[col].axis("off")
+        col += 1
+
+        axes[col].imshow(rec_img, cmap="gray", vmin=vmin, vmax=vmax, aspect="auto")
+        axes[col].set_title(recon_label)
+        axes[col].axis("off")
+        col += 1
 
         diff = np.abs(gt_img - rec_img)
-        im = axes[2].imshow(diff, cmap="hot", aspect="auto")
-        axes[2].set_title("Absolute Difference")
-        axes[2].axis("off")
-        fig.colorbar(im, ax=axes[2], fraction=0.046, pad=0.04)
+        im = axes[col].imshow(diff, cmap="hot", aspect="auto")
+        axes[col].set_title("Absolute Difference")
+        axes[col].axis("off")
+        fig.colorbar(im, ax=axes[col], fraction=0.046, pad=0.04)
 
-        fig.suptitle(f"{case_name} — {name}")
+        title = case_name
+        if psnr is not None and ssim is not None:
+            title += f" — PSNR: {psnr:.2f} dB | SSIM: {ssim:.4f}"
+        title += f" — {name}"
+        fig.suptitle(title)
         fig.savefig(os.path.join(case_out, f"eval_{name}.png"),
                     bbox_inches="tight", dpi=image_dpi)
         plt.close(fig)

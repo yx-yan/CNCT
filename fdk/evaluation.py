@@ -55,7 +55,8 @@ for nii_path in cases:
 
     if SAVE_PNG:
         os.makedirs(case_out, exist_ok=True)
-        save_comparison(gt, recon, dVoxel, case_out, case_name, "FDK Reconstruction", IMAGE_DPI)
+        save_comparison(gt, recon, dVoxel, case_out, case_name, "FDK Reconstruction", IMAGE_DPI,
+                        psnr=psnr, ssim=ssim)
         print(f"  Comparison images saved to {case_out}/")
 
 # --- CSV summary ---
