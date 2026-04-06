@@ -32,10 +32,12 @@ import nibabel as nib
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 # Project root on PYTHONPATH (set by sbatch script)
 from config import (
     DATA_DIR, PROJ_DIR, FDK_DIR, MU_WATER,
+    DUAL_DOMAIN_CHECKPOINT_DIR, SINO_OUT_FEATURES, SINO_F_MAPS, VOLUME_F_MAPS,
 )
 from geometry import build_geometry, hu_to_mu, load_nifti_as_tigre
 
@@ -67,9 +69,170 @@ def normalize_mu(x: np.ndarray) -> np.ndarray:
     return (2.0 * (x - MU_MIN) / (MU_MAX - MU_MIN) - 1.0).astype(np.float32)
 
 
-def denormalize_mu(x: np.ndarray) -> np.ndarray:
-    """Inverse of normalize_mu."""
-    return ((x + 1.0) / 2.0 * (MU_MAX - MU_MIN) + MU_MIN).astype(np.float32)
+# =============================================================================
+# Hybrid Loss (L1 + 3D SSIM + 3D Edge)
+# =============================================================================
+
+
+class SSIM3DLoss(nn.Module):
+    """Structural Similarity loss for 3D single-channel volumes.
+
+    Computes SSIM over a local 3D window using uniform-weight box averaging
+    (efficient via F.avg_pool3d).  Returns 1 - mean(SSIM_map) so that
+    minimising the loss maximises SSIM.
+
+    Parameters
+    ----------
+    window_size : int
+        Side length of the cubic averaging window (must be odd).
+    """
+
+    def __init__(self, window_size: int = 7):
+        super().__init__()
+        assert window_size % 2 == 1, "window_size must be odd"
+        self.window_size = window_size
+        self.C1 = 0.01 ** 2  # stabiliser for luminance  (L=1 for [-1,1] range → k1²)
+        self.C2 = 0.03 ** 2  # stabiliser for contrast
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+        pred, target : torch.Tensor [B, 1, D, H, W]
+            Data range assumed [-1, 1] → data_range = 2.
+
+        Returns
+        -------
+        Scalar loss = 1 - mean(SSIM).
+        """
+        data_range = 2.0  # [-1, 1]
+        C1 = (self.C1 * data_range ** 2)
+        C2 = (self.C2 * data_range ** 2)
+
+        ws = self.window_size
+        pad = ws // 2
+
+        mu_p = F.avg_pool3d(pred, ws, stride=1, padding=pad)
+        mu_t = F.avg_pool3d(target, ws, stride=1, padding=pad)
+
+        mu_pp = mu_p * mu_p
+        mu_tt = mu_t * mu_t
+        mu_pt = mu_p * mu_t
+
+        sigma_pp = F.avg_pool3d(pred * pred, ws, stride=1, padding=pad) - mu_pp
+        sigma_tt = F.avg_pool3d(target * target, ws, stride=1, padding=pad) - mu_tt
+        sigma_pt = F.avg_pool3d(pred * target, ws, stride=1, padding=pad) - mu_pt
+
+        ssim_map = ((2 * mu_pt + C1) * (2 * sigma_pt + C2)) / (
+            (mu_pp + mu_tt + C1) * (sigma_pp + sigma_tt + C2)
+        )
+        return 1.0 - ssim_map.mean()
+
+
+class Edge3DLoss(nn.Module):
+    """3D Sobel edge loss.
+
+    Applies 3D Sobel filters along each spatial axis to both prediction and
+    target, then computes L1 between the edge maps.  This penalises
+    differences in gradient magnitude, encouraging the network to preserve
+    sharp anatomical boundaries while suppressing streak artifacts that
+    create spurious edges.
+
+    The Sobel kernels are registered as non-learnable buffers.
+    """
+
+    def __init__(self):
+        super().__init__()
+        # 3×3×3 Sobel kernels for each axis.  The kernel differentiates
+        # along one axis and smooths along the other two (separable).
+        # Axis 0 (depth / Z)
+        sobel_z = torch.tensor([
+            [[-1, -2, -1], [-2, -4, -2], [-1, -2, -1]],
+            [[ 0,  0,  0], [ 0,  0,  0], [ 0,  0,  0]],
+            [[ 1,  2,  1], [ 2,  4,  2], [ 1,  2,  1]],
+        ], dtype=torch.float32)
+        # Axis 1 (height / Y)
+        sobel_y = torch.tensor([
+            [[-1, -2, -1], [ 0,  0,  0], [ 1,  2,  1]],
+            [[-2, -4, -2], [ 0,  0,  0], [ 2,  4,  2]],
+            [[-1, -2, -1], [ 0,  0,  0], [ 1,  2,  1]],
+        ], dtype=torch.float32)
+        # Axis 2 (width / X)
+        sobel_x = torch.tensor([
+            [[-1,  0,  1], [-2,  0,  2], [-1,  0,  1]],
+            [[-2,  0,  2], [-4,  0,  4], [-2,  0,  2]],
+            [[-1,  0,  1], [-2,  0,  2], [-1,  0,  1]],
+        ], dtype=torch.float32)
+
+        # Stack into conv weight: [3, 1, 3, 3, 3]  (out_ch=3, in_ch=1)
+        kernel = torch.stack([sobel_z, sobel_y, sobel_x], dim=0).unsqueeze(1)
+        self.register_buffer("kernel", kernel)
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+        pred, target : torch.Tensor [B, 1, D, H, W]
+
+        Returns
+        -------
+        Scalar L1 between 3D edge maps.
+        """
+        edges_pred = F.conv3d(pred, self.kernel, padding=1)     # [B, 3, D, H, W]
+        edges_target = F.conv3d(target, self.kernel, padding=1)
+        return F.l1_loss(edges_pred, edges_target)
+
+
+class HybridLoss(nn.Module):
+    """Composite loss for sparse-view CT reconstruction.
+
+    Combines three complementary objectives:
+
+    1. **L1 loss** — pixel-wise fidelity, robust to outliers (better than
+       L2/MSE for CT where streak artifacts create large residuals).
+    2. **3D SSIM loss** — perceptual structural similarity, preserves
+       contrast and luminance patterns across local 3D neighbourhoods.
+    3. **3D Edge loss** — Sobel-based gradient matching, explicitly
+       penalises differences in edge structure to suppress streak artifacts
+       (which create spurious high-frequency edges) while preserving true
+       anatomical boundaries.
+
+    The total loss is::
+
+        L = alpha * L1 + beta * (1 - SSIM) + gamma * L_edge
+
+    Parameters
+    ----------
+    alpha : float
+        Weight for L1 loss (default 1.0).
+    beta : float
+        Weight for SSIM loss (default 0.5).
+    gamma : float
+        Weight for edge loss (default 0.1).
+    ssim_window : int
+        Window size for 3D SSIM computation (default 7).
+    """
+
+    def __init__(
+        self,
+        alpha: float = 1.0,
+        beta: float = 0.5,
+        gamma: float = 0.1,
+        ssim_window: int = 7,
+    ):
+        super().__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
+        self.l1 = nn.L1Loss()
+        self.ssim = SSIM3DLoss(window_size=ssim_window)
+        self.edge = Edge3DLoss()
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        l1_loss = self.l1(pred, target)
+        ssim_loss = self.ssim(pred, target)
+        edge_loss = self.edge(pred, target)
+        return self.alpha * l1_loss + self.beta * ssim_loss + self.gamma * edge_loss
 
 
 def normalize_sinogram(sino: np.ndarray) -> np.ndarray:
@@ -180,7 +343,8 @@ class DualDomainDataset(torch.utils.data.Dataset):
 
         # --- Spatial downsampling of VOLUMES only ---
         fdk_vol = self._spatial_downsample(fdk_vol, mode="trilinear")
-        gt_vol = self._spatial_downsample(gt_vol, mode="nearest")
+        # Trilinear for continuous mu-values to avoid aliasing (Isensee et al., 2021; nnU-Net)
+        gt_vol = self._spatial_downsample(gt_vol, mode="trilinear")
 
         # --- Build DBP-compatible geometry ---
         # Start from the ORIGINAL NIfTI header so nDetector and DSO/DSD
@@ -345,11 +509,11 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
 
     # Model
-    parser.add_argument("--sino_features", type=int, default=4,
+    parser.add_argument("--sino_features", type=int, default=SINO_OUT_FEATURES,
                         help="Branch A output feature channels")
-    parser.add_argument("--sino_f_maps", type=int, nargs="+", default=[8, 16, 32],
+    parser.add_argument("--sino_f_maps", type=int, nargs="+", default=SINO_F_MAPS,
                         help="Branch A U-Net feature maps")
-    parser.add_argument("--vol_f_maps", type=int, nargs="+", default=[8, 16, 32, 64, 128],
+    parser.add_argument("--vol_f_maps", type=int, nargs="+", default=VOLUME_F_MAPS,
                         help="Branch B U-Net feature maps")
 
     # Data
@@ -359,7 +523,7 @@ def main():
                         help="Root of existing HDF5 splits (for case discovery)")
 
     # Checkpointing
-    parser.add_argument("--checkpoint_dir", default="/projects/CTdata/dual_domain_checkpoints")
+    parser.add_argument("--checkpoint_dir", default=DUAL_DOMAIN_CHECKPOINT_DIR)
     parser.add_argument("--resume", default=None, help="Path to checkpoint to resume from")
 
     args = parser.parse_args()
@@ -403,7 +567,9 @@ def main():
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay,
     )
-    criterion = nn.SmoothL1Loss()
+    # Edge-emphasised weights: reduce SSIM, boost edge loss to combat L1 over-smoothing
+    # (Zhao et al., 2016; Blau & Michaeli, 2018 Perception-Distortion Tradeoff)
+    criterion = HybridLoss(alpha=1.0, beta=0.2, gamma=1.0).to(device)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", factor=0.5, patience=10,
     )

@@ -495,7 +495,6 @@ class DualDomainCascadeNet(nn.Module):
         # Force float32 for TIGRE's external CUDA kernels.
         # Free sinogram from GPU first — it's no longer needed (Branch A
         # checkpoint will recompute from the saved input during backward).
-        sinogram_device = sinogram.device  # remember for later
         del sinogram
         torch.cuda.empty_cache()
 

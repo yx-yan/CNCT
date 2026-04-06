@@ -3,7 +3,7 @@
 #SBATCH --output=logs/dual_domain_%j.log
 #SBATCH --error=logs/dual_domain_%j.err
 #SBATCH --time=48:00:00
-#SBATCH --gpus=2
+#SBATCH --gpus=1
 #SBATCH --constraint=gpu_48g
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
@@ -50,6 +50,7 @@ python 3dunet/dual_domain_train.py \
     --spatial_scale 0.5 \
     --checkpoint_dir /projects/CTdata/dual_domain_checkpoints \
     --seed 42 \
+    # --resume /projects/CTdata/dual_domain_checkpoints/last_checkpoint.pytorch \
     2>&1
 
 echo "Done at $(date) (${SECONDS}s)"

@@ -12,7 +12,7 @@ PROJ_DIR  = "/projects/CTdata/projection60"   # projection.py output
 FDK_DIR   = "/projects/CTdata/fdk60"          # fdk.py output
 EVAL_DIR  = "/projects/CTdata/evaluation60"   # evaluation.py output
 UNET_EVAL_DIR = "/projects/CTdata/unet_evaluation"  # 3dunet/evaluation.py output
-MAX_CASES = 5          # max number of cases to process; None = all cases
+MAX_CASES = 400          # max number of cases to process; None = all cases
 CASE_START = 0           # start index (inclusive) into the sorted case list
 CASE_END   = None        # end index (exclusive); None = through the last case
 
