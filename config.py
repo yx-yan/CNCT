@@ -42,7 +42,7 @@ SAVE_NII = False         # fdk.py never saves recon_fdk.nii.gz
 # --- Dual-Domain Cascade Network ---
 DUAL_DOMAIN_CHECKPOINT_DIR = "/projects/CTdata/dual_domain_checkpoints"
 SINO_OUT_FEATURES = 4              # Branch A output feature channels (backprojected by DBP)
-SINO_F_MAPS = [8, 16, 32]         # Branch A U-Net feature map sizes
+SINO_F_MAPS = [8, 16, 32, 64]         # Branch A U-Net feature map sizes
 VOLUME_F_MAPS = [8, 16, 32, 64, 128]  # Branch B U-Net feature map sizes
 
 # --- Visualisation ---

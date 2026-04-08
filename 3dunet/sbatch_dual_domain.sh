@@ -34,7 +34,7 @@ echo ""
 echo "=== Dual-Domain Cascade Training ==="
 echo "  spatial_scale: 0.5  (Y,X downsampled to half)"
 echo "  sino_features: 4    (Branch A output channels)"
-echo "  sino_f_maps:   8 16 32"
+echo "  sino_f_maps:   8 16 32 64 128"
 echo "  vol_f_maps:    8 16 32 64 128"
 echo "  AMP:           enabled"
 echo "  Grad checkpoint: enabled"
@@ -45,7 +45,7 @@ python 3dunet/dual_domain_train.py \
     --lr 2e-4 \
     --weight_decay 1e-5 \
     --sino_features 4 \
-    --sino_f_maps 8 16 32 \
+    --sino_f_maps 8 16 32 64 128\
     --vol_f_maps 8 16 32 64 128 \
     --spatial_scale 0.5 \
     --checkpoint_dir /projects/CTdata/dual_domain_checkpoints \
