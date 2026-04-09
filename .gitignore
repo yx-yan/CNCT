@@ -13,7 +13,7 @@ output/
 *.pth
 *.h5
 *.npy
-CTdata
+CTdata/
 
 # Jupyter
 .ipynb_checkpoints/
