@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cnct-dataprep"
+version = "0.1.0"
+description = "Standalone TIGRE-based forward projection and FDK reconstruction preprocessing for sparse-view CT."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "CNCT" }]
+dependencies = [
+    "numpy>=1.24",
+    "nibabel>=5.0",
+    "pyyaml>=6.0",
+    "scikit-image>=0.21",
+    "matplotlib>=3.7",
+    # Note: `tigre` is installed from source on the cluster and is not a PyPI
+    # dependency. It is required at runtime by cnct_dataprep.projection and
+    # cnct_dataprep.reconstruction.
+]
+
+[project.scripts]
+cnct-projection = "cnct_dataprep.cli.projection:main"
+cnct-fdk = "cnct_dataprep.cli.fdk:main"
+cnct-evaluation = "cnct_dataprep.cli.evaluation:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cnct_dataprep = ["py.typed"]

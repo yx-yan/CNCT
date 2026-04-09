@@ -1,0 +1,25 @@
+# -----------------------------------------------------------------------------
+# CT cone-beam geometry and unit-conversion parameters.
+#
+# These values are reused by both forward projection (projection.yaml) and FDK
+# reconstruction (fdk.yaml). Both stages MUST use the same geometry or
+# reconstructions will be mis-registered.
+# -----------------------------------------------------------------------------
+
+# Source distance scale: DSO = max_radius * dso_scale.
+# Must be > 1 so the X-ray source is always outside the reconstructed volume.
+dso_scale: 5.0
+
+# Detector distance scale: DSD = DSO * dsd_scale. Controls magnification.
+dsd_scale: 1.5
+
+# Multiplier on detector column pitch. Values > 1 pad the detector laterally
+# to prevent projection truncation artifacts for off-center voxels.
+detector_col_margin: 1.5
+
+# Linear attenuation of water at ~70 keV (mm^-1). Used for HU <-> mu conversion.
+mu_water: 0.02
+
+# tigre.Ax ray-integration step size in voxels.
+# Lower = finer steps = more accurate forward projection, but slower.
+accuracy: 0.5

@@ -1,0 +1,25 @@
+# -----------------------------------------------------------------------------
+# FDK evaluation pipeline parameters.
+#
+# Consumed by: cnct_dataprep.evaluation.runner  (CLI: scripts/evaluate_fdk.py)
+# -----------------------------------------------------------------------------
+
+# Relative path to the geometry config file (resolved from this file's directory).
+# Only geometry.mu_water is actually used by the evaluation pipeline (for the
+# ground-truth HU -> mu conversion), but the composition keeps the config
+# structure consistent with projection.yaml / fdk.yaml.
+geometry_config: geometry.yaml
+
+# --- Paths ---
+data_dir: /projects/CTdata/AbdomenCT-1K-ImagePart1   # ground-truth NIfTI root
+fdk_dir:  /projects/CTdata/fdk60                     # input recon_fdk.npy root
+eval_dir: /projects/CTdata/evaluation60              # output CSV + comparison PNGs
+
+# --- Case selection ---
+case_start: 0
+case_end: null
+max_cases: 400
+
+# --- Output ---
+save_png: true       # save axial/coronal/sagittal comparison PNGs
+image_dpi: 150

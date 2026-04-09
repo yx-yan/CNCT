@@ -1,0 +1,11 @@
+# -----------------------------------------------------------------------------
+# Cone-beam geometry shared between training and inference of the
+# dual-domain cascade. These values MUST match the geometry used by
+# cnct_dataprep when the sinograms and FDK reconstructions were generated —
+# otherwise the DBP layer will be mis-registered against the sinograms.
+# -----------------------------------------------------------------------------
+dso_scale: 5.0            # DSO = max_radius * dso_scale (source outside volume)
+dsd_scale: 1.5            # DSD = DSO * dsd_scale (magnification)
+detector_col_margin: 1.5  # dDetector[1] *= this to prevent truncation
+mu_water: 0.02            # linear attenuation of water (mm^-1)
+accuracy: 0.5             # tigre.Ax ray-integration step size in voxels

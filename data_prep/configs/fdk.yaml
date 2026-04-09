@@ -1,0 +1,28 @@
+# -----------------------------------------------------------------------------
+# FDK reconstruction pipeline parameters.
+#
+# Consumed by: cnct_dataprep.reconstruction.fdk  (CLI: scripts/run_fdk.py)
+# -----------------------------------------------------------------------------
+
+# Relative path to the geometry config file (resolved from this file's directory).
+# Must match the geometry used for forward projection.
+geometry_config: geometry.yaml
+
+# --- Paths ---
+data_dir: /projects/CTdata/AbdomenCT-1K-ImagePart1   # NIfTI root (needed to rebuild per-case geometry)
+proj_dir: /projects/CTdata/projection60              # input projections.npy root
+fdk_dir:  /projects/CTdata/fdk60                     # output recon_fdk.npy root
+
+# --- Reconstruction ---
+# FDK backprojection filter: ram_lak | shepp_logan | cosine | hamming | hann
+filter_name: ram_lak
+
+# --- Case selection ---
+case_start: 0
+case_end: null
+max_cases: 400
+
+# --- Output ---
+save_png: true       # save reconstruction slice PNGs
+save_nii: false      # save recon_fdk.nii.gz (large; disable to save disk space)
+image_dpi: 150

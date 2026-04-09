@@ -1,0 +1,30 @@
+# -----------------------------------------------------------------------------
+# Dual-domain cascade inference configuration.
+#
+# Consumed by: cnct.config.loader.load_inference_cfg
+#              → cnct.inference.predictor (wired in step 8)
+# -----------------------------------------------------------------------------
+
+geometry_config: geometry.yaml
+
+data:
+  data_dir: /projects/CTdata/AbdomenCT-1K-ImagePart1
+  proj_dir: /projects/CTdata/projection60
+  fdk_dir:  /projects/CTdata/fdk60
+  h5_root:  /projects/CTdata/h5_3dunet
+  spatial_scale: 0.5
+  mu_min: -0.02
+  mu_max:  0.08
+
+model:
+  sinogram_out_features: 4
+  sinogram_f_maps: [8, 16, 32, 64]
+  volume_f_maps:   [8, 16, 32, 64, 128]
+  num_groups: 8
+  use_checkpoint: false   # no gradients during inference — disable for speed
+
+checkpoint: /projects/CTdata/dual_domain_checkpoints/best_checkpoint.pytorch
+output_dir: /projects/CTdata/dual_domain_checkpoints/predictions
+split: test               # train | val | test
+device: auto
+amp: true
