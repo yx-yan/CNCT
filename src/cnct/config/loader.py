@@ -118,12 +118,12 @@ def load_geometry_cfg(path: PathLike) -> GeometryCfg:
     return GeometryCfg(**data)
 
 
-def _build_data_cfg(section: Dict[str, Any]) -> DataCfg:
+def _build_data_cfg(section: Dict[str, Any], base_dir: str = "") -> DataCfg:
     """Construct a :class:`DataCfg` from a YAML sub-section (path coercion)."""
     coerced = dict(section)
     for key in ("data_dir", "proj_dir", "fdk_dir", "h5_root"):
         if key in coerced:
-            coerced[key] = Path(coerced[key])
+            coerced[key] = Path(str(coerced[key]).format(base_dir=base_dir))
     return DataCfg(**coerced)
 
 
@@ -157,6 +157,8 @@ def load_training_cfg(path: PathLike) -> TrainingCfg:
 
     geometry = _resolve_geometry_ref(data, stage_path)
 
+    base_dir = data.pop("base_dir", "")
+
     if "data" not in data:
         raise ValueError(
             f"Training config {stage_path} is missing required 'data' section"
@@ -166,7 +168,7 @@ def load_training_cfg(path: PathLike) -> TrainingCfg:
             f"Training config {stage_path} is missing required 'model' section"
         )
 
-    data_cfg = _build_data_cfg(data.pop("data"))
+    data_cfg = _build_data_cfg(data.pop("data"), base_dir=base_dir)
     model_cfg = _build_model_cfg(data.pop("model"))
     loss_cfg = LossCfg(**data.pop("loss", {}))
     optimizer_cfg = OptimizerCfg(**data.pop("optimizer", {}))
@@ -174,7 +176,7 @@ def load_training_cfg(path: PathLike) -> TrainingCfg:
 
     for key in ("checkpoint_dir", "resume"):
         if key in data and data[key] is not None:
-            data[key] = Path(data[key])
+            data[key] = Path(str(data[key]).format(base_dir=base_dir))
 
     logger.debug("Loading TrainingCfg from %s", stage_path)
     return TrainingCfg(
@@ -208,6 +210,7 @@ def load_inference_cfg(path: PathLike) -> InferenceCfg:
     data = _load_yaml(stage_path)
 
     geometry = _resolve_geometry_ref(data, stage_path)
+    base_dir = data.pop("base_dir", "")
 
     if "data" not in data:
         raise ValueError(
@@ -218,12 +221,12 @@ def load_inference_cfg(path: PathLike) -> InferenceCfg:
             f"Inference config {stage_path} is missing required 'model' section"
         )
 
-    data_cfg = _build_data_cfg(data.pop("data"))
+    data_cfg = _build_data_cfg(data.pop("data"), base_dir=base_dir)
     model_cfg = _build_model_cfg(data.pop("model"))
 
     for key in ("checkpoint", "output_dir"):
         if key in data:
-            data[key] = Path(data[key])
+            data[key] = Path(str(data[key]).format(base_dir=base_dir))
 
     logger.debug("Loading InferenceCfg from %s", stage_path)
     return InferenceCfg(

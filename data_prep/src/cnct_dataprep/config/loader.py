@@ -124,6 +124,14 @@ def load_projection_cfg(path: PathLike) -> ProjectionCfg:
     data = _load_yaml(stage_path)
     geometry = _resolve_geometry_ref(data, stage_path)
 
+    # Resolve {base_dir} and {n_angles} placeholders in path fields.
+    base_dir = data.pop("base_dir", "")
+    data.setdefault("n_angles", geometry.n_angles)
+    n_angles = data["n_angles"]
+    for key in ("data_dir", "proj_dir"):
+        if key in data:
+            data[key] = str(data[key]).format(base_dir=base_dir, n_angles=n_angles)
+
     for key in ("data_dir", "proj_dir"):
         if key in data:
             data[key] = Path(data[key])
@@ -155,6 +163,13 @@ def load_fdk_cfg(path: PathLike) -> FdkCfg:
     data = _load_yaml(stage_path)
     geometry = _resolve_geometry_ref(data, stage_path)
 
+    # Resolve {base_dir} and {n_angles} placeholders from geometry.
+    base_dir = data.pop("base_dir", "")
+    n_angles = geometry.n_angles
+    for key in ("data_dir", "proj_dir", "fdk_dir"):
+        if key in data:
+            data[key] = str(data[key]).format(base_dir=base_dir, n_angles=n_angles)
+
     for key in ("data_dir", "proj_dir", "fdk_dir"):
         if key in data:
             data[key] = Path(data[key])
@@ -185,6 +200,13 @@ def load_evaluation_cfg(path: PathLike) -> EvaluationCfg:
     stage_path = Path(path).resolve()
     data = _load_yaml(stage_path)
     geometry = _resolve_geometry_ref(data, stage_path)
+
+    # Resolve {base_dir} and {n_angles} placeholders from geometry.
+    base_dir = data.pop("base_dir", "")
+    n_angles = geometry.n_angles
+    for key in ("data_dir", "fdk_dir", "eval_dir"):
+        if key in data:
+            data[key] = str(data[key]).format(base_dir=base_dir, n_angles=n_angles)
 
     for key in ("data_dir", "fdk_dir", "eval_dir"):
         if key in data:

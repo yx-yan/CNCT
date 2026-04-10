@@ -9,9 +9,10 @@
 geometry_config: geometry.yaml
 
 # --- Paths ---
-data_dir: /projects/CTdata/AbdomenCT-1K-ImagePart1   # NIfTI root (needed to rebuild per-case geometry)
-proj_dir: /projects/CTdata/projection60              # input projections.npy root
-fdk_dir:  /projects/CTdata/fdk60                     # output recon_fdk.npy root
+base_dir: /projects/CTdata                            # root data directory (change this for a new server)
+data_dir: "{base_dir}/AbdomenCT-1K-Image"             # NIfTI root (needed to rebuild per-case geometry)
+proj_dir: "{base_dir}/projection{n_angles}"            # input projections.npy root (auto-filled from geometry.n_angles)
+fdk_dir:  "{base_dir}/fdk{n_angles}"                   # output recon_fdk.npy root (auto-filled from geometry.n_angles)
 
 # --- Reconstruction ---
 # FDK backprojection filter: ram_lak | shepp_logan | cosine | hamming | hann
@@ -20,9 +21,9 @@ filter_name: ram_lak
 # --- Case selection ---
 case_start: 0
 case_end: null
-max_cases: 400
+max_cases: null
 
 # --- Output ---
-save_png: true       # save reconstruction slice PNGs
+save_png: false       # save reconstruction slice PNGs
 save_nii: false      # save recon_fdk.nii.gz (large; disable to save disk space)
 image_dpi: 150

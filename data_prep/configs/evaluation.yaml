@@ -11,15 +11,16 @@
 geometry_config: geometry.yaml
 
 # --- Paths ---
-data_dir: /projects/CTdata/AbdomenCT-1K-ImagePart1   # ground-truth NIfTI root
-fdk_dir:  /projects/CTdata/fdk60                     # input recon_fdk.npy root
-eval_dir: /projects/CTdata/evaluation60              # output CSV + comparison PNGs
+base_dir: /projects/CTdata                            # root data directory (change this for a new server)
+data_dir: "{base_dir}/AbdomenCT-1K-Image"             # ground-truth NIfTI root
+fdk_dir:  "{base_dir}/fdk{n_angles}"                   # input recon_fdk.npy root (auto-filled from geometry.n_angles)
+eval_dir: "{base_dir}/evaluation{n_angles}"            # output CSV + comparison PNGs (auto-filled from geometry.n_angles)
 
 # --- Case selection ---
 case_start: 0
 case_end: null
-max_cases: 400
+max_cases: null
 
 # --- Output ---
-save_png: true       # save axial/coronal/sagittal comparison PNGs
+save_png: false       # save axial/coronal/sagittal comparison PNGs
 image_dpi: 150

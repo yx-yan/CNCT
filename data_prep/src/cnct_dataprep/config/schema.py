@@ -36,6 +36,9 @@ class GeometryCfg:
         detector_col_margin: Multiplier on the detector column pitch. Values
             greater than 1 pad the detector laterally to prevent projection
             truncation artifacts for off-centre voxels.
+        n_angles: Number of projection angles distributed evenly over 360°.
+            Shared across all stages; also used to resolve ``{n_angles}``
+            placeholders in directory paths.
         mu_water: Linear attenuation of water at ~70 keV, in mm⁻¹. Used for the
             HU ↔ mu conversion formula ``mu = (HU + 1000) / 1000 * mu_water``.
         accuracy: ``tigre.Ax`` ray-integration step size in voxels. Lower values
@@ -45,6 +48,7 @@ class GeometryCfg:
     dso_scale: float
     dsd_scale: float
     detector_col_margin: float
+    n_angles: int
     mu_water: float
     accuracy: float
 
@@ -67,6 +71,8 @@ class GeometryCfg:
             raise ValueError(
                 f"detector_col_margin must be >= 1.0; got {self.detector_col_margin}"
             )
+        if self.n_angles <= 0:
+            raise ValueError(f"n_angles must be > 0; got {self.n_angles}")
         if self.mu_water <= 0.0:
             raise ValueError(f"mu_water must be > 0; got {self.mu_water}")
         if self.accuracy <= 0.0:

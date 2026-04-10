@@ -7,11 +7,13 @@
 
 geometry_config: geometry.yaml
 
+base_dir: /projects/CTdata          # root data directory (change this for a new server)
+
 data:
-  data_dir: /projects/CTdata/AbdomenCT-1K-ImagePart1
-  proj_dir: /projects/CTdata/projection60
-  fdk_dir:  /projects/CTdata/fdk60
-  h5_root:  /projects/CTdata/h5_3dunet
+  data_dir: "{base_dir}/AbdomenCT-1K-Image"
+  proj_dir: "{base_dir}/projection60"
+  fdk_dir:  "{base_dir}/fdk60"
+  h5_root:  "{base_dir}/h5_3dunet"
   spatial_scale: 0.5
   mu_min: -0.02
   mu_max:  0.08
@@ -23,8 +25,8 @@ model:
   num_groups: 8
   use_checkpoint: false   # no gradients during inference — disable for speed
 
-checkpoint: /projects/CTdata/dual_domain_checkpoints/best_checkpoint.pytorch
-output_dir: /projects/CTdata/dual_domain_checkpoints/predictions
+checkpoint: "{base_dir}/dual_domain_checkpoints/best_checkpoint.pytorch"
+output_dir: "{base_dir}/dual_domain_checkpoints/predictions"
 split: test               # train | val | test
 device: auto
 amp: true

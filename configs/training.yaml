@@ -7,11 +7,13 @@
 
 geometry_config: geometry.yaml   # relative to this file's directory
 
+base_dir: /projects/CTdata          # root data directory (change this for a new server)
+
 data:
-  data_dir: /projects/CTdata/AbdomenCT-1K-ImagePart1   # GT NIfTI root (HU)
-  proj_dir: /projects/CTdata/projection60              # sinograms (from cnct_dataprep)
-  fdk_dir:  /projects/CTdata/fdk60                     # FDK recons (from cnct_dataprep)
-  h5_root:  /projects/CTdata/h5_3dunet                 # for case-split discovery
+  data_dir: "{base_dir}/AbdomenCT-1K-Image"   # GT NIfTI root (HU)
+  proj_dir: "{base_dir}/projection60"              # sinograms (from cnct_dataprep)
+  fdk_dir:  "{base_dir}/fdk60"                     # FDK recons (from cnct_dataprep)
+  h5_root:  "{base_dir}/h5_3dunet"                 # for case-split discovery
   spatial_scale: 0.5      # Y,X downsample factor (1.0 = full res)
   mu_min: -0.02           # fixed-range mu normalisation lower bound
   mu_max:  0.08           # fixed-range mu normalisation upper bound
@@ -42,7 +44,7 @@ scheduler:
 epochs: 200
 seed: 42
 device: auto            # auto | cpu | cuda
-checkpoint_dir: /projects/CTdata/dual_domain_checkpoints
+checkpoint_dir: "{base_dir}/dual_domain_checkpoints"
 resume: null            # path to a .pytorch checkpoint, or null
 log_interval: 5
 amp: true               # enable torch AMP autocast + GradScaler

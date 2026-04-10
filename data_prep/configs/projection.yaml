@@ -8,18 +8,16 @@
 geometry_config: geometry.yaml
 
 # --- Paths ---
-data_dir: /projects/CTdata/AbdomenCT-1K-ImagePart1   # input NIfTI root
-proj_dir: /projects/CTdata/projection60              # output projections.npy root
-
-# --- Acquisition ---
-n_angles: 60         # number of projection angles distributed over 360 degrees
+base_dir: /projects/CTdata                            # root data directory (change this for a new server)
+data_dir: "{base_dir}/AbdomenCT-1K-Image"             # input NIfTI root
+proj_dir: "{base_dir}/projection{n_angles}"            # output projections.npy root (auto-filled from geometry.n_angles)
 
 # --- Case selection ---
 case_start: 0        # inclusive index into the sorted case list
 case_end: null       # exclusive index; null = through the last case
-max_cases: 400       # hard cap on cases after start/end slicing; null = no cap
+max_cases: null       # hard cap on cases after start/end slicing; null = no cap
 
 # --- Output / visualisation ---
-save_png: true          # save per-angle PNG visualisations alongside projections.npy
+save_png: false          # save per-angle PNG visualisations alongside projections.npy
 proj_save_every: 20     # save every Nth projection angle as PNG (when save_png is true)
 image_dpi: 150          # DPI for all saved PNGs

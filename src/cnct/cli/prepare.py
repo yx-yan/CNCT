@@ -5,9 +5,9 @@ builder is idempotent and safe to re-run: existing ``.h5`` files are left
 untouched so interrupted jobs can resume cleanly.
 
 Example:
-    cnct-prepare-data --fdk_dir /projects/CTdata/fdk60 \\
-                      --gt_dir  /projects/CTdata/AbdomenCT-1K-ImagePart1 \\
-                      --out_dir /projects/CTdata/h5_3dunet
+    cnct-prepare-data --fdk_dir /path/to/fdk60 \\
+                      --gt_dir  /path/to/AbdomenCT-1K-Image \\
+                      --out_dir /path/to/h5_3dunet
 """
 from __future__ import annotations
 
@@ -21,10 +21,12 @@ from ..utils.logging import configure_root_logger
 
 logger = logging.getLogger(__name__)
 
+_BASE_DIR = Path("/projects/CTdata")  # root data directory (change for a new server)
+
 _DEFAULTS = PrepareConfig(
-    fdk_dir=Path("/projects/CTdata/fdk60"),
-    gt_dir=Path("/projects/CTdata/AbdomenCT-1K-ImagePart1"),
-    out_dir=Path("/projects/CTdata/h5_3dunet"),
+    fdk_dir=_BASE_DIR / "fdk60",
+    gt_dir=_BASE_DIR / "AbdomenCT-1K-Image",
+    out_dir=_BASE_DIR / "h5_3dunet",
 )
 
 

@@ -2,7 +2,7 @@
 #SBATCH --job-name=cnct-dataprep
 #SBATCH --output=logs/dataprep_%j.log
 #SBATCH --error=logs/dataprep_%j.err
-#SBATCH --time=02:00:00
+#SBATCH --time=24:00:00
 #SBATCH --gpus=1
 #SBATCH --constraint=gpu
 #SBATCH --cpus-per-task=4
@@ -42,21 +42,21 @@ EVAL_LOG="$LOG_DIR/dataprep_${JOB_TAG}_evaluation.log"
 
 echo "GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader)"
 
-# --- Stage 1/3: Forward projection ------------------------------------------
-echo "Stage 1/3 — forward projection"
-T0=$SECONDS
-python -m cnct_dataprep.cli.projection \
-    --config "$CONFIG_DIR/projection.yaml" \
-    --log-file "$PROJECTION_LOG"
-echo "  Done in $((SECONDS - T0))s"
+# # --- Stage 1/3: Forward projection ------------------------------------------
+# echo "Stage 1/3 — forward projection"
+# T0=$SECONDS
+# python -m cnct_dataprep.cli.projection \
+#     --config "$CONFIG_DIR/projection.yaml" \
+#     --log-file "$PROJECTION_LOG"
+# echo "  Done in $((SECONDS - T0))s"
 
-# --- Stage 2/3: FDK reconstruction ------------------------------------------
-echo "Stage 2/3 — FDK reconstruction"
-T0=$SECONDS
-python -m cnct_dataprep.cli.fdk \
-    --config "$CONFIG_DIR/fdk.yaml" \
-    --log-file "$FDK_LOG"
-echo "  Done in $((SECONDS - T0))s"
+# # --- Stage 2/3: FDK reconstruction ------------------------------------------
+# echo "Stage 2/3 — FDK reconstruction"
+# T0=$SECONDS
+# python -m cnct_dataprep.cli.fdk \
+#     --config "$CONFIG_DIR/fdk.yaml" \
+#     --log-file "$FDK_LOG"
+# echo "  Done in $((SECONDS - T0))s"
 
 # --- Stage 3/3: Evaluation --------------------------------------------------
 echo "Stage 3/3 — evaluation"

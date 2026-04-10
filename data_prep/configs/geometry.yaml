@@ -17,6 +17,10 @@ dsd_scale: 1.5
 # to prevent projection truncation artifacts for off-center voxels.
 detector_col_margin: 1.5
 
+# Number of projection angles distributed evenly over 360 degrees.
+# Shared by projection, FDK, and evaluation stages — change here only.
+n_angles: 30
+
 # Linear attenuation of water at ~70 keV (mm^-1). Used for HU <-> mu conversion.
 mu_water: 0.02
 
