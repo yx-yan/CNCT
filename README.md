@@ -1,173 +1,268 @@
-# CNCT — Dual-Domain Cascaded Network for Sparse-View Cone-Beam CT
+# Sparse-View Cone-Beam CT Reconstruction via a Dual-Domain Cascaded Network
 
-End-to-end pipeline for sparse-view cone-beam CT reconstruction enhancement.
-Forward-projects 3D volumetric CT data with a TIGRE-backed cone-beam model,
-reconstructs with FDK, and then refines the coarse reconstructions with a
-dual-domain cascaded neural network that operates on both the sinogram and
-image domains through a differentiable backprojection bridge.
+> **Final Year Project (FYP)** — Nanyang Technological University (NTU),
+> in collaboration with the Agency for Science, Technology and Research (A\*STAR).
 
-Built on [TIGRE](https://github.com/CERN/TIGRE) (GPU-accelerated CUDA) and
-PyTorch.
+This repository implements an end-to-end deep-learning pipeline for
+**sparse-view cone-beam computed tomography (CBCT) reconstruction**. Given a
+severely under-sampled set of X-ray projections, the proposed
+**Dual-Domain Cascaded Network (CNCT)** jointly exploits sinogram-domain and
+image-domain representations, bridged by a **differentiable backprojection
+(DBP)** operator, to recover high-fidelity volumetric reconstructions from as
+few as 60 views.
+
+Sparse-view CT is a problem of direct relevance to two communities:
+
+- **Medical imaging**, where reducing the number of X-ray projections linearly
+  reduces the radiation dose delivered to the patient — a key objective of the
+  ALARA (As Low As Reasonably Achievable) principle.
+- **Semiconductor inspection and industrial metrology**, where shortening the
+  acquisition time per sample enables higher throughput non-destructive
+  testing (NDT) of integrated circuits, advanced packaging, and 3D NAND
+  devices without compromising defect detectability.
+
+Classical analytical reconstruction algorithms such as **FDK** produce severe
+streak artifacts and noise amplification under sparse-view geometry. CNCT
+addresses this by learning an artifact-removal prior that is *physically
+consistent* with the acquisition geometry, thanks to an exact adjoint
+backprojection layer differentiable under PyTorch autograd.
+
+---
+
+## Key Features
+
+- **Dual-domain learning.** A sinogram-domain 3D U-Net (Branch A) and a
+  volume-domain Residual U-Net (Branch B) are cascaded through a
+  differentiable backprojection bridge, allowing joint optimisation over both
+  the measurement and image domains in a single end-to-end loop.
+- **Physically-exact DBP bridge.** A custom `torch.autograd.Function` wraps
+  TIGRE's matched backprojector; the backward pass uses the forward projector
+  `Ax` as the mathematically exact adjoint, so gradients flow through the
+  acquisition geometry without surrogate approximations.
+- **High-fidelity reconstruction.** A hybrid `L1 + SSIM + Sobel-edge` loss
+  preserves both low-frequency HU accuracy and high-frequency edge structure
+  critical for downstream diagnosis / defect detection.
+- **Memory-efficient full-volume training.** Mixed-precision (AMP) +
+  gradient checkpointing + on-demand CUDA cache clearing around each TIGRE
+  call enable training on full-resolution cone-beam volumes on a single
+  48 GB GPU.
+- **HPC-ready I/O.** A fork-safe memory-mapped dataset supports
+  `DataLoader(num_workers > 0)` on SLURM nodes without file-handle leaks.
+- **Modular two-package design.** The TIGRE-heavy data-preparation stage is
+  shipped as a standalone package (`cnct_dataprep`, no PyTorch dependency)
+  so sinogram generation and FDK reconstruction can run on lighter nodes.
+- **Bit-exact reproducibility.** Under `cudnn.deterministic = True` the
+  refactored model matches the legacy implementation bit-for-bit on both
+  forward and backward passes, including through the TIGRE DBP layer.
+- **Custom-dataset ready.** Per-case TIGRE geometry is rebuilt from the
+  NIfTI header, so volumes with heterogeneous voxel spacing and Z-depth can
+  be used without manual intervention.
+
+---
+
+## Methodology Overview
+
+The CNCT forward pipeline, for a sparse-view sinogram $s \in \mathbb{R}^{N_\theta \times N_r \times N_c}$ and its analytical FDK reconstruction $x_\text{fdk} \in \mathbb{R}^{Z \times Y \times X}$:
+
+$$
+\begin{aligned}
+f_s &= \mathcal{U}_\text{sino}(s) && \text{(Branch A: sinogram features)} \\
+f_v &= \mathcal{A}^{\top}(f_s) && \text{(Differentiable backprojection)} \\
+\hat{r} &= \mathcal{U}_\text{vol}\!\left([\,x_\text{fdk}\ \|\ f_v\,]\right) && \text{(Branch B: artifact prediction)} \\
+\hat{x} &= x_\text{fdk} - \hat{r} && \text{(Residual connection)}
+\end{aligned}
+$$
+
+where $\mathcal{A}^\top$ denotes the matched (unfiltered) cone-beam
+backprojector provided by TIGRE, whose adjoint — exact to floating-point
+precision — is the forward projector $\mathcal{A} = A_x$.
+
+The training objective is a hybrid loss:
+
+$$
+\mathcal{L} = \alpha \cdot \mathcal{L}_{1}(\hat{x}, x_\text{gt}) + \beta \cdot \bigl(1 - \text{SSIM}(\hat{x}, x_\text{gt})\bigr) + \gamma \cdot \mathcal{L}_{1}\!\left(\nabla \hat{x}, \nabla x_\text{gt}\right)
+$$
+
+with default weights $\alpha = 1.0$, $\beta = 0.2$, $\gamma = 1.0$.
 
 ---
 
 ## Project Structure
 
-The repository is split into **two fully independent Python packages** so
-the data-preparation stage (TIGRE-heavy, no PyTorch) and the deep-learning
-stage (PyTorch + TIGRE) can be installed and shipped separately:
+The repository is split into **two independent Python packages**:
+`cnct_dataprep` (TIGRE, no PyTorch) handles projection and classical
+reconstruction, and `cnct` (PyTorch + TIGRE) handles the deep-learning stage.
 
 ```
 CNCT/
-├── data_prep/                       # Package 1: cnct_dataprep
-│   ├── pyproject.toml               # installable as `cnct-dataprep`
+├── data_prep/                       # Package 1: cnct_dataprep (TIGRE only)
 │   ├── configs/
 │   │   ├── geometry.yaml            # shared cone-beam geometry
-│   │   ├── projection.yaml          # forward-projection stage config
-│   │   ├── fdk.yaml                 # FDK reconstruction stage config
-│   │   └── evaluation.yaml          # PSNR/SSIM evaluation config
-│   ├── scripts/                     # thin wrappers around the package CLI
+│   │   ├── projection.yaml          # forward-projection stage
+│   │   ├── fdk.yaml                 # FDK reconstruction stage
+│   │   └── evaluation.yaml          # PSNR / SSIM evaluation stage
 │   └── src/cnct_dataprep/
-│       ├── config/                  # typed dataclasses + YAML loaders
-│       ├── geometry/                # HU↔mu conversion + per-case TIGRE geometry
+│       ├── geometry/                # HU↔mu conversion + per-case geometry
 │       ├── projection/              # tigre.Ax forward projection
 │       ├── reconstruction/          # tigre.algorithms.fdk
-│       ├── evaluation/              # PSNR / SSIM + comparison PNGs
-│       ├── utils/                   # io, paths, logging, seeding, device
-│       └── cli/                     # projection / fdk / evaluation entry points
+│       ├── evaluation/              # metrics + visualisation
+│       └── cli/                     # projection / fdk / evaluation CLIs
 │
-├── src/cnct/                        # Package 2: cnct (deep-learning)
-│   ├── config/                      # typed dataclasses + YAML loaders
-│   ├── geometry/                    # HU↔mu + per-case geometry (duplicated from data_prep)
-│   ├── data/                        # HPC-friendly lazy dataset + HDF5 split builder
-│   │   ├── normalization.py         # pure fn helpers (mu↔[-1,1], sino→[0,1])
+├── src/cnct/                        # Package 2: cnct (PyTorch + TIGRE)
+│   ├── data/
+│   │   ├── normalization.py         # pure-fn mu↔[-1,1] & sinogram scaling
 │   │   ├── dataset.py               # DualDomainDataset (fork-safe mmap I/O)
-│   │   └── prepare.py               # HDF5 split-builder (0.80/0.10/0.10, seed=42)
-│   ├── models/                      # verbatim-ported dual-domain cascade
+│   │   └── prepare.py               # HDF5 split builder (80/10/10)
+│   ├── models/
 │   │   ├── blocks.py                # ConvBlock / Encoder / Bottleneck / Decoder
 │   │   ├── unet3d.py                # ResidualUNet3D (single-domain baseline)
-│   │   └── dual_domain.py           # SinogramUNet3D + DBP + VolumeUNet3D + cascade
-│   ├── training/                    # Trainer, losses, metrics, checkpointing
+│   │   └── dual_domain.py           # SinogramUNet3D + DBP + VolumeUNet3D
+│   ├── training/                    # Trainer, hybrid loss, metrics, ckpts
 │   ├── inference/                   # Predictor
-│   ├── utils/                       # io, paths, logging, seeding, device
-│   └── cli/                         # train / predict / prepare-data entry points
+│   └── cli/                         # train / predict / prepare-data CLIs
 │
 ├── configs/                         # cnct YAML configs
 │   ├── geometry.yaml
 │   ├── training.yaml
 │   └── inference.yaml
 │
-├── slurm/                           # SLURM templates
-│   ├── data_prep/sbatch_dataprep.sh         # stage 1+2+3 chained
+├── slurm/                           # SLURM job templates
+│   ├── data_prep/sbatch_dataprep.sh
 │   └── dual_domain/
-│       ├── sbatch_train.sh                  # cnct-train
-│       └── sbatch_predict.sh                # cnct-predict
+│       ├── sbatch_train.sh
+│       └── sbatch_predict.sh
 │
 ├── pyproject.toml                   # cnct package manifest
 ├── README.md                        # this file
 └── CLAUDE.md                        # developer notes (architecture + gotchas)
 ```
 
-### Why two packages?
-
-`cnct_dataprep` has a narrow dependency footprint (numpy, nibabel, tigre,
-scikit-image, matplotlib) and can run on any TIGRE-capable node without
-PyTorch. `cnct` adds torch + h5py on top and reuses the dataset produced by
-`cnct_dataprep`. The geometry module is **duplicated** between the two
-packages rather than hoisted into a third shared package, so each package
-can be installed, tested, and shipped independently.
-
 ### Data flow
 
 ```
-NIfTI (HU)  ─┐
-             ├─▶ cnct_dataprep.projection   ─▶ projections.npy  (sinograms)
-             │
-             ├─▶ cnct_dataprep.reconstruction ─▶ recon_fdk.npy  (coarse FDK)
-             │
-             └─▶ cnct.data.prepare            ─▶ h5_3dunet/{train,val,test}/*.h5
-                                                  │
-                                                  ▼
-                                        cnct.training.Trainer
-                                                  │
-                                                  ▼
-                                       best_checkpoint.pytorch
-                                                  │
-                                                  ▼
-                                       cnct.inference.Predictor
-                                                  │
-                                                  ▼
-                                        <case>_recon.npy   (enhanced)
-                                                  │
-                                                  ▼
-                                   cnct_dataprep.evaluation  (PSNR/SSIM)
+NIfTI (HU) ──▶ cnct_dataprep.projection     ──▶ projections.npy
+           ──▶ cnct_dataprep.reconstruction ──▶ recon_fdk.npy
+           ──▶ cnct.data.prepare            ──▶ h5_3dunet/{train,val,test}/*.h5
+                                                        │
+                                                        ▼
+                                               cnct.training.Trainer
+                                                        │
+                                                        ▼
+                                              best_checkpoint.pytorch
+                                                        │
+                                                        ▼
+                                              cnct.inference.Predictor
+                                                        │
+                                                        ▼
+                                               <case>_recon.npy
+                                                        │
+                                                        ▼
+                                          cnct_dataprep.evaluation (PSNR/SSIM)
 ```
 
 ---
 
-## Installation
-
-Both packages use the `src/` layout and can be installed with
-`pip install -e .`. You will typically use a single conda environment
-(`fyp`) and install both packages into it, but they can live in separate
-environments if needed.
+## Environment Setup
 
 ### 1. Prerequisites
 
-- Python ≥ 3.10
-- CUDA 12.3 toolkit (the SLURM scripts load `CUDA/12.3.0`)
-- [TIGRE](https://github.com/CERN/TIGRE) built against the node's GPU
-  architecture — see the CUDA architecture note in `CLAUDE.md` before
-  running on a Blackwell node
-- A conda environment named `fyp` (used by the SLURM scripts)
+| Component | Version |
+|---|---|
+| OS          | Linux (tested on HPC SLURM cluster) |
+| Python      | ≥ 3.10 |
+| CUDA toolkit| **12.3** (the SLURM scripts load `CUDA/12.3.0`) |
+| GPU         | ≥ 24 GB recommended; 48 GB for full-volume training |
+| TIGRE       | Built from source against the target GPU architecture |
+| PyTorch     | ≥ 2.1 with CUDA 12.x wheels |
 
-### 2. Data-preparation package
+> **CUDA compatibility note.** TIGRE kernels must be compiled against the
+> compute capability of the target GPU. Mixing a Blackwell GPU
+> (RTX PRO 6000, `sm_120`) with a CUDA 12.3 build of TIGRE causes silent
+> zero-output failures (`Ax:Siddon_projection no kernel image is available
+> for execution on the device`). See `CLAUDE.md` for details.
 
-```bash
-cd CNCT/data_prep
-pip install -e .
-```
-
-This registers three console scripts:
-
-- `cnct-projection`  — simulate cone-beam projections from NIfTI volumes
-- `cnct-fdk`         — reconstruct FDK volumes from projections
-- `cnct-evaluation`  — PSNR/SSIM of FDK (or any .npy recon) vs GT
-
-### 3. Deep-learning package
+### 2. Conda environment
 
 ```bash
-cd CNCT
-pip install -e .
+# Create and activate the environment
+conda create -n fyp python=3.10 -y
+conda activate fyp
+
+# Install PyTorch with CUDA 12.1 wheels (forward-compatible with CUDA 12.3)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# Build TIGRE from source (see https://github.com/CERN/TIGRE) against the
+# compute capability of your GPU, then install its Python bindings.
 ```
 
-This registers three console scripts:
+### 3. Install the two packages (editable mode)
 
-- `cnct-prepare-data` — build the HDF5 train/val/test splits
-- `cnct-train`        — train the dual-domain cascade
-- `cnct-predict`      — run trained inference
+```bash
+# Data-preparation package: registers cnct-projection / cnct-fdk / cnct-evaluation
+pip install -e CNCT/data_prep
 
-Both packages pick up `tigre` from the active conda environment; it is
-**not** declared as a PyPI dependency because it must be built from source
-for each node's GPU architecture.
+# Deep-learning package: registers cnct-prepare-data / cnct-train / cnct-predict
+pip install -e CNCT
+```
+
+`tigre` is intentionally **not** declared as a PyPI dependency — it is picked
+up from the active environment after your source build.
 
 ---
 
-## Quick Start
+## Usage Instructions
 
-All paths and tunables live in YAML files under `data_prep/configs/` and
-`configs/`. The typical workflow edits those files once and then submits
-SLURM jobs.
+### 1. Data Preparation
 
-### Step 1. Configure geometry and paths
+The pipeline was developed and benchmarked on the public
+[AbdomenCT-1K](https://github.com/JunMa11/AbdomenCT-1K) dataset. Volumes are
+`<CaseID>_0000.nii.gz` with heterogeneous Z-depths (61–834 slices) and voxel
+spacings, which motivates the per-case dynamic TIGRE geometry.
 
-Edit `data_prep/configs/geometry.yaml` (cone-beam geometry, `mu_water`) and
-each stage config (`projection.yaml`, `fdk.yaml`, `evaluation.yaml`) to
-point at your dataset. `configs/geometry.yaml` in the cnct package mirrors
-the same schema and must agree with the data-prep geometry.
+**Expected dataset layout:**
 
-`configs/training.yaml` and `configs/inference.yaml` configure the cnct
-pipeline. Key blocks:
+```
+/projects/CTdata/
+├── AbdomenCT-1K-ImagePart{1,2,3}/
+│   └── <CaseID>_0000.nii.gz          # Ground-truth NIfTI volumes (HU)
+├── projection60/<CaseID>/projections.npy   # (filled by cnct-projection)
+├── fdk60/<CaseID>/recon_fdk.npy            # (filled by cnct-fdk)
+└── h5_3dunet/{train,val,test}/<CaseID>.h5  # (filled by cnct-prepare-data)
+```
+
+Update the paths in `data_prep/configs/*.yaml` and `configs/training.yaml` to
+point at your dataset, then run:
+
+```bash
+# (a) Generate sparse-view sinograms + FDK baselines
+sbatch slurm/data_prep/sbatch_dataprep.sh
+
+# Or run the three stages directly (no SLURM):
+cnct-projection  --config data_prep/configs/projection.yaml
+cnct-fdk         --config data_prep/configs/fdk.yaml
+cnct-evaluation  --config data_prep/configs/evaluation.yaml
+
+# (b) Build the HDF5 train / val / test splits (80 / 10 / 10, seed=42)
+cnct-prepare-data
+cnct-prepare-data --dry_run                    # preview only
+cnct-prepare-data --out_dir /tmp/h5 --seed 7   # override defaults
+```
+
+The split builder is idempotent — existing HDF5 files are skipped on re-run.
+
+### 2. Training
+
+Edit `configs/training.yaml` (key knobs summarised below) and submit:
+
+```bash
+sbatch slurm/dual_domain/sbatch_train.sh                        # default config
+sbatch slurm/dual_domain/sbatch_train.sh configs/my_training.yaml
+
+# Or run directly on a GPU login shell
+python -m cnct.cli.train --config configs/training.yaml
+```
+
+Representative configuration excerpt:
 
 ```yaml
 # configs/training.yaml  (excerpt)
@@ -177,106 +272,100 @@ data:
   proj_dir: /projects/CTdata/projection60
   fdk_dir:  /projects/CTdata/fdk60
   h5_root:  /projects/CTdata/h5_3dunet
-  spatial_scale: 0.5
+  spatial_scale: 0.5                 # volume downsample; sinogram stays full-res
   mu_min: -0.02
   mu_max:  0.08
 model:
-  sinogram_out_features: 4
+  sinogram_out_features: 4           # DBP channels passed to Branch B
   sinogram_f_maps: [8, 16, 32, 64]
   volume_f_maps:   [8, 16, 32, 64, 128]
-  num_groups: 8
-  use_checkpoint: true
+  use_checkpoint:  true              # gradient checkpointing
 loss:      {alpha: 1.0, beta: 0.2, gamma: 1.0, ssim_window: 7}
 optimizer: {lr: 2.0e-4, weight_decay: 1.0e-5}
-scheduler: {mode: max, factor: 0.5, patience: 10}
+scheduler: {mode: max, factor: 0.5, patience: 10}   # ReduceLROnPlateau on val PSNR
 epochs: 200
-seed: 42
-device: auto
+seed:   42
+amp:    true
 checkpoint_dir: /projects/CTdata/dual_domain_checkpoints
-amp: true
 ```
 
-### Step 2. Run data preparation (TIGRE)
+Checkpointing:
+
+| File | When written |
+|---|---|
+| `best_checkpoint.pytorch` | Whenever validation PSNR improves |
+| `last_checkpoint.pytorch` | Every epoch (resume-safe) |
+
+Resume an interrupted run by setting `resume: /path/to/last_checkpoint.pytorch`
+in the training YAML. Model, optimiser, scheduler, **and AMP scaler** states
+are all persisted; skipping the scaler state causes NaNs on the first
+restored step because the loss scale resets.
+
+### 3. Inference & Evaluation
 
 ```bash
-cd CNCT
-sbatch slurm/data_prep/sbatch_dataprep.sh
-```
-
-This chains projection → FDK → evaluation for every NIfTI case in
-`data_dir`. Outputs:
-
-- `projections.npy` in `PROJ_DIR/<case>/`
-- `recon_fdk.npy`   in `FDK_DIR/<case>/`
-- PNG comparisons + `evaluation_results.csv` in `EVAL_DIR/`
-
-### Step 3. Build HDF5 splits
-
-```bash
-cnct-prepare-data                                 # full run with defaults
-cnct-prepare-data --dry_run                       # preview split sizes
-cnct-prepare-data --out_dir /tmp/h5 --seed 7      # override defaults
-```
-
-Produces `<h5_root>/{train,val,test}/<case>.h5`. The builder is
-idempotent — existing files are skipped, so re-runs after interrupted
-jobs are safe.
-
-### Step 4. Train the dual-domain cascade
-
-```bash
-sbatch slurm/dual_domain/sbatch_train.sh                         # default config
-sbatch slurm/dual_domain/sbatch_train.sh configs/my_training.yaml
-```
-
-Each epoch writes `last_checkpoint.pytorch`; whenever validation PSNR
-improves, `best_checkpoint.pytorch` is also refreshed. Both files live
-under `checkpoint_dir` from the training YAML. Resume by setting
-`resume: /path/to/last_checkpoint.pytorch` in the YAML (or run
-`cnct-train --config ... ` directly).
-
-### Step 5. Run inference and evaluate
-
-```bash
-sbatch slurm/dual_domain/sbatch_predict.sh                         # default config
+# Run inference (writes <case>_recon.npy under output_dir)
+sbatch slurm/dual_domain/sbatch_predict.sh                         # default
 sbatch slurm/dual_domain/sbatch_predict.sh configs/my_inference.yaml
-```
 
-Outputs `<case>_recon.npy` files in the inference `output_dir`. Pipe those
-through `cnct-evaluation` to get PSNR/SSIM vs the NIfTI ground truth.
-
-### Running commands directly (outside SLURM)
-
-Every SLURM script is a thin wrapper over a module-style invocation, so
-you can run the same commands on a GPU login shell:
-
-```bash
-python -m cnct.cli.train   --config configs/training.yaml
+# Or directly
 python -m cnct.cli.predict --config configs/inference.yaml
-cnct-prepare-data --dry_run
+
+# Compute PSNR / SSIM vs ground truth NIfTI volumes
+cnct-evaluation --config data_prep/configs/evaluation.yaml
 ```
+
+`cnct-evaluation` emits a `evaluation_results.csv` with per-case PSNR and
+SSIM, together with PNG comparison grids (input FDK / prediction / GT) for
+qualitative inspection.
 
 ---
 
-## Key Design Notes
+## Results
 
-- **Math preservation**: the dual-domain cascade (`cnct.models`) is a
-  verbatim port of the legacy model. Bit-exact forward + backward parity
-  with the pre-refactor implementation was confirmed on CPU (all
-  CPU-testable blocks) and on GPU including the TIGRE differentiable
-  backprojection, under `torch.backends.cudnn.deterministic = True`.
-- **AMP + gradient clipping**: the Trainer runs forward and loss under
-  `torch.amp.autocast("cuda")` with a `GradScaler`, unscales gradients
-  before clipping at `||g||₂ ≤ 1.0` (default), then steps the optimiser.
-  Clipping is essential because TIGRE adjoint gradients can spike.
-- **HPC-friendly I/O**: `DualDomainDataset` opens no file handles in
-  `__init__`. Every call to `__getitem__` memory-maps the sinogram and
-  FDK `.npy` files and releases the handle on return, so the dataset is
-  fork-safe with `num_workers > 0`.
-- **Checkpoint completeness**: model, optimiser, scheduler, **and AMP
-  scaler** states are all persisted so resumed runs continue at the same
-  loss scale — skipping the scaler state causes NaNs on the first
-  restored step.
+> *Quantitative and qualitative results on AbdomenCT-1K, 60-view cone-beam
+> geometry. To be updated with final numbers and figures.*
 
-See `CLAUDE.md` for deeper architectural notes and the CUDA-architecture
-warning about Blackwell nodes.
+**Quantitative comparison** (60-view, AbdomenCT-1K test split):
+
+| Method           | PSNR (dB) ↑ | SSIM ↑ |
+|------------------|:-----------:|:------:|
+| FDK (baseline)   |     TBD     |  TBD   |
+| 3D ResUNet (image-only)  |     TBD     |  TBD   |
+| **CNCT (ours)**  |   **TBD**   | **TBD**|
+
+**Qualitative comparison**
+
+<p align="center">
+  <img src="docs/figures/comparison_placeholder.png" width="90%" alt="FBP vs Ours vs Ground Truth"/>
+  <br/>
+  <em>Left → Right: Sparse-view FDK / Ground Truth / CNCT (Ours) / Absolute Difference.</em>
+</p>
+
+---
+
+## Acknowledgements
+
+This work is conducted as a **Final Year Project at Nanyang Technological
+University (NTU)**, in collaboration with the **Agency for Science,
+Technology and Research (A\*STAR)**.
+
+- **Academic supervisor:** Prof. **Jiang Xudong** (NTU, School of EEE)
+- **Industry co-supervisor:** Dr. **Jun Cheng** (A\*STAR)
+
+The authors gratefully acknowledge the computational resources provided by
+NTU's HPC cluster, and the following open-source projects on which this
+work builds:
+
+- [TIGRE](https://github.com/CERN/TIGRE) — GPU-accelerated tomographic
+  reconstruction toolbox (CERN / Univ. of Bath).
+- [PyTorch](https://pytorch.org) — deep-learning framework.
+- [AbdomenCT-1K](https://github.com/JunMa11/AbdomenCT-1K) — large-scale
+  abdominal CT benchmark used for development and evaluation.
+
+---
+
+## License
+
+This repository is released for academic and research purposes. Please
+contact the authors before any commercial use.
