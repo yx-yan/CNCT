@@ -11,8 +11,8 @@ base_dir: /projects/CTdata          # root data directory (change this for a new
 
 data:
   data_dir: "{base_dir}/AbdomenCT-1K-Image"   # GT NIfTI root (HU)
-  proj_dir: "{base_dir}/projection60"              # sinograms (from cnct_dataprep)
-  fdk_dir:  "{base_dir}/fdk60"                     # FDK recons (from cnct_dataprep)
+  proj_dir: "{base_dir}/projection{n_angles}"       # sinograms (auto-filled from geometry.n_angles)
+  fdk_dir:  "{base_dir}/fdk{n_angles}"              # FDK recons (auto-filled from geometry.n_angles)
   h5_root:  "{base_dir}/h5_3dunet"                 # for case-split discovery
   spatial_scale: 0.5      # Y,X downsample factor (1.0 = full res)
   mu_min: -0.02           # fixed-range mu normalisation lower bound
@@ -20,7 +20,7 @@ data:
 
 model:
   sinogram_out_features: 4                  # Branch A output feature channels
-  sinogram_f_maps: [8, 16, 32, 64]          # Branch A U-Net feature maps
+  sinogram_f_maps: [8, 16, 32, 64, 128]          # Branch A U-Net feature maps
   volume_f_maps:   [8, 16, 32, 64, 128]     # Branch B U-Net feature maps
   num_groups: 8                             # GroupNorm group count
   use_checkpoint: true                      # block-level gradient checkpointing
@@ -41,7 +41,7 @@ scheduler:
   patience: 10
 
 # --- Training loop ---
-epochs: 200
+epochs: 100
 seed: 42
 device: auto            # auto | cpu | cuda
 checkpoint_dir: "{base_dir}/dual_domain_checkpoints"

@@ -34,6 +34,7 @@ class GeometryCfg:
         dso_scale: Source-to-origin distance scale (must be > 1).
         dsd_scale: Source-to-detector distance scale (must be > 1).
         detector_col_margin: Detector column pitch multiplier (must be >= 1).
+        n_angles: Number of projection angles (shared with data_prep geometry).
         mu_water: Linear attenuation of water at ~70 keV, in mm⁻¹.
         accuracy: ``tigre.Ax`` ray-integration step size in voxels.
     """
@@ -41,6 +42,7 @@ class GeometryCfg:
     dso_scale: float
     dsd_scale: float
     detector_col_margin: float
+    n_angles: int
     mu_water: float
     accuracy: float
 
@@ -64,6 +66,8 @@ class GeometryCfg:
                 f"detector_col_margin must be >= 1.0; "
                 f"got {self.detector_col_margin}"
             )
+        if self.n_angles <= 0:
+            raise ValueError(f"n_angles must be > 0; got {self.n_angles}")
         if self.mu_water <= 0.0:
             raise ValueError(f"mu_water must be > 0; got {self.mu_water}")
         if self.accuracy <= 0.0:

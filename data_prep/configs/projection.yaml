@@ -18,6 +18,6 @@ case_end: null       # exclusive index; null = through the last case
 max_cases: null       # hard cap on cases after start/end slicing; null = no cap
 
 # --- Output / visualisation ---
-save_png: false          # save per-angle PNG visualisations alongside projections.npy
+save_png: False          # save per-angle PNG visualisations alongside projections.npy
 proj_save_every: 20     # save every Nth projection angle as PNG (when save_png is true)
 image_dpi: 150          # DPI for all saved PNGs

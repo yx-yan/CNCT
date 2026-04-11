@@ -22,5 +22,5 @@ case_end: null
 max_cases: null
 
 # --- Output ---
-save_png: false       # save axial/coronal/sagittal comparison PNGs
+save_png: False       # save axial/coronal/sagittal comparison PNGs
 image_dpi: 150

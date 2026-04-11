@@ -7,5 +7,6 @@
 dso_scale: 5.0            # DSO = max_radius * dso_scale (source outside volume)
 dsd_scale: 1.5            # DSD = DSO * dsd_scale (magnification)
 detector_col_margin: 1.5  # dDetector[1] *= this to prevent truncation
+n_angles: 30              # number of projection angles (must match data_prep/configs/geometry.yaml)
 mu_water: 0.02            # linear attenuation of water (mm^-1)
 accuracy: 0.5             # tigre.Ax ray-integration step size in voxels

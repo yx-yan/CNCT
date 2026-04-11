@@ -24,6 +24,6 @@ case_end: null
 max_cases: null
 
 # --- Output ---
-save_png: false       # save reconstruction slice PNGs
+save_png: False       # save reconstruction slice PNGs
 save_nii: false      # save recon_fdk.nii.gz (large; disable to save disk space)
 image_dpi: 150

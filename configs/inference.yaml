@@ -5,14 +5,14 @@
 #              → cnct.inference.predictor (wired in step 8)
 # -----------------------------------------------------------------------------
 
-geometry_config: geometry.yaml
+geometry_config: geometry.yaml   # relative to this file's directory
 
 base_dir: /projects/CTdata          # root data directory (change this for a new server)
 
 data:
   data_dir: "{base_dir}/AbdomenCT-1K-Image"
-  proj_dir: "{base_dir}/projection60"
-  fdk_dir:  "{base_dir}/fdk60"
+  proj_dir: "{base_dir}/projection{n_angles}"
+  fdk_dir:  "{base_dir}/fdk{n_angles}"
   h5_root:  "{base_dir}/h5_3dunet"
   spatial_scale: 0.5
   mu_min: -0.02
@@ -20,7 +20,7 @@ data:
 
 model:
   sinogram_out_features: 4
-  sinogram_f_maps: [8, 16, 32, 64]
+  sinogram_f_maps: [8, 16, 32, 64, 128]
   volume_f_maps:   [8, 16, 32, 64, 128]
   num_groups: 8
   use_checkpoint: false   # no gradients during inference — disable for speed
