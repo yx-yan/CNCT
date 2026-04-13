@@ -30,3 +30,10 @@ output_dir: "{base_dir}/dual_domain_checkpoints/predictions"
 split: test               # train | val | test
 device: auto
 amp: true
+
+# Visualisation: also save axial/coronal/sagittal comparison PNGs and
+# compute PSNR/SSIM against the GT NIfTI. Outputs go to
+#   {output_dir}/visualizations/<CaseID>/pred_{axial,coronal,sagittal}.png
+# and an aggregate {output_dir}/metrics.csv.
+save_png: true
+image_dpi: 150

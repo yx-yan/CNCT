@@ -348,6 +348,11 @@ class InferenceCfg:
             / ``"test"``).
         device: ``"auto"``, ``"cpu"``, or ``"cuda"``.
         amp: If ``True``, wrap the forward pass in torch AMP autocast.
+        save_png: If ``True``, also save axial/coronal/sagittal comparison
+            PNGs against the ground truth and compute PSNR/SSIM for each
+            case. PNGs go under ``output_dir / "visualizations" / <case>``
+            and an aggregate ``metrics.csv`` is written to ``output_dir``.
+        image_dpi: DPI of saved comparison PNGs.
     """
 
     geometry: GeometryCfg
@@ -358,6 +363,8 @@ class InferenceCfg:
     split: str = "test"
     device: str = "auto"
     amp: bool = True
+    save_png: bool = False
+    image_dpi: int = 150
 
     def __post_init__(self) -> None:
         """Validate inference parameters.
@@ -374,4 +381,8 @@ class InferenceCfg:
             raise ValueError(
                 f"device must be one of {sorted(_VALID_DEVICES)}; "
                 f"got {self.device!r}"
+            )
+        if self.image_dpi <= 0:
+            raise ValueError(
+                f"image_dpi must be > 0; got {self.image_dpi}"
             )

@@ -13,6 +13,7 @@ voxelwise against the ground truth.
 """
 from __future__ import annotations
 
+import csv
 import logging
 import time
 from pathlib import Path
@@ -27,6 +28,8 @@ from ..data import DualDomainDataset, unit_range_to_mu
 from ..models import DualDomainCascadeNet
 from ..utils.device import resolve_device
 from ..utils.io import ensure_dir, safe_load_npy
+from ..utils.paths import case_fdk_path, case_nifti_path
+from .visualize import compute_psnr_ssim, load_gt_as_mu, save_comparison
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,17 @@ class Predictor:
 
         self.output_dir = ensure_dir(cfg.output_dir)
         logger.info("Output directory: %s", self.output_dir)
+
+        self.viz_dir: Path | None = None
+        self.metrics_csv: Path | None = None
+        if cfg.save_png:
+            self.viz_dir = ensure_dir(self.output_dir / "visualizations")
+            self.metrics_csv = self.output_dir / "metrics.csv"
+            logger.info(
+                "Visualisation enabled: PNGs → %s, metrics CSV → %s",
+                self.viz_dir,
+                self.metrics_csv,
+            )
 
     # ------------------------------------------------------------------
     # Construction
@@ -108,6 +122,7 @@ class Predictor:
             ``<case>_recon.npy`` output file.
         """
         results: Dict[str, Path] = {}
+        metrics_rows: list[tuple[str, float, float, float, float]] = []
         t0 = time.time()
         n = len(self.dataset)
 
@@ -118,6 +133,9 @@ class Predictor:
             if out_path.is_file():
                 logger.info("[%d/%d] %s — skip (exists)", idx + 1, n, case_id)
                 results[case_id] = out_path
+                if self.cfg.save_png:
+                    pred_mu = safe_load_npy(out_path).astype(np.float32)
+                    self._visualize_case(case_id, pred_mu, metrics_rows)
                 continue
 
             logger.info("[%d/%d] %s", idx + 1, n, case_id)
@@ -130,7 +148,12 @@ class Predictor:
                 float(pred_mu.min()),
                 float(pred_mu.max()),
             )
+            if self.cfg.save_png:
+                self._visualize_case(case_id, pred_mu, metrics_rows)
             results[case_id] = out_path
+
+        if self.cfg.save_png and self.metrics_csv is not None and metrics_rows:
+            self._write_metrics_csv(metrics_rows)
 
         logger.info(
             "Prediction complete: %d case(s) in %.1fs",
@@ -138,6 +161,138 @@ class Predictor:
             time.time() - t0,
         )
         return results
+
+    # ------------------------------------------------------------------
+    # Visualisation
+    # ------------------------------------------------------------------
+
+    def _visualize_case(
+        self,
+        case_id: str,
+        pred_mu: np.ndarray,
+        metrics_rows: list[tuple[str, float, float, float, float]],
+    ) -> None:
+        """Compute PSNR/SSIM for FDK + prediction and save comparison PNGs."""
+        try:
+            gt_path = case_nifti_path(self.cfg.data.data_dir, case_id)
+            gt, dVoxel = load_gt_as_mu(gt_path, self.cfg.geometry.mu_water)
+        except FileNotFoundError as exc:
+            logger.warning(
+                "    skip visualisation for %s — GT not found: %s",
+                case_id,
+                exc,
+            )
+            return
+
+        try:
+            fdk_path = case_fdk_path(self.cfg.data.fdk_dir, case_id)
+            fdk = safe_load_npy(fdk_path).astype(np.float32)
+        except FileNotFoundError as exc:
+            logger.warning(
+                "    skip visualisation for %s — FDK not found: %s",
+                case_id,
+                exc,
+            )
+            return
+
+        if gt.shape != pred_mu.shape or gt.shape != fdk.shape:
+            logger.warning(
+                "    skip visualisation for %s — shape mismatch "
+                "(gt=%s, fdk=%s, pred=%s)",
+                case_id,
+                gt.shape,
+                fdk.shape,
+                pred_mu.shape,
+            )
+            return
+
+        fdk_psnr, fdk_ssim = compute_psnr_ssim(gt, fdk)
+        psnr, ssim = compute_psnr_ssim(gt, pred_mu)
+        logger.info(
+            "    metrics %s: FDK PSNR=%.2f dB SSIM=%.4f | "
+            "Pred PSNR=%.2f dB SSIM=%.4f",
+            case_id,
+            fdk_psnr,
+            fdk_ssim,
+            psnr,
+            ssim,
+        )
+        metrics_rows.append((case_id, fdk_psnr, fdk_ssim, psnr, ssim))
+
+        assert self.viz_dir is not None
+        save_comparison(
+            gt=gt,
+            fdk=fdk,
+            recon=pred_mu,
+            dVoxel=dVoxel,
+            case_out=self.viz_dir / case_id,
+            case_id=case_id,
+            recon_label="Dual-Domain Prediction",
+            image_dpi=self.cfg.image_dpi,
+            psnr=psnr,
+            ssim=ssim,
+            fdk_psnr=fdk_psnr,
+            fdk_ssim=fdk_ssim,
+        )
+
+    def _write_metrics_csv(
+        self, rows: list[tuple[str, float, float, float, float]]
+    ) -> None:
+        """Write per-case FDK + prediction PSNR/SSIM + summary stats."""
+        assert self.metrics_csv is not None
+        fdk_psnrs = np.array([r[1] for r in rows], dtype=np.float64)
+        fdk_ssims = np.array([r[2] for r in rows], dtype=np.float64)
+        psnrs = np.array([r[3] for r in rows], dtype=np.float64)
+        ssims = np.array([r[4] for r in rows], dtype=np.float64)
+        with self.metrics_csv.open("w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(
+                [
+                    "case_id",
+                    "fdk_psnr_db",
+                    "fdk_ssim",
+                    "pred_psnr_db",
+                    "pred_ssim",
+                ]
+            )
+            for case_id, fp, fs, pp, ps in rows:
+                w.writerow(
+                    [
+                        case_id,
+                        f"{fp:.4f}",
+                        f"{fs:.6f}",
+                        f"{pp:.4f}",
+                        f"{ps:.6f}",
+                    ]
+                )
+            w.writerow([])
+            w.writerow(
+                [
+                    "mean",
+                    f"{fdk_psnrs.mean():.4f}",
+                    f"{fdk_ssims.mean():.6f}",
+                    f"{psnrs.mean():.4f}",
+                    f"{ssims.mean():.6f}",
+                ]
+            )
+            w.writerow(
+                [
+                    "std",
+                    f"{fdk_psnrs.std():.4f}",
+                    f"{fdk_ssims.std():.6f}",
+                    f"{psnrs.std():.4f}",
+                    f"{ssims.std():.6f}",
+                ]
+            )
+        logger.info(
+            "Wrote metrics CSV (%d cases): FDK mean PSNR=%.2f/SSIM=%.4f  "
+            "Pred mean PSNR=%.2f/SSIM=%.4f",
+            len(rows),
+            float(fdk_psnrs.mean()),
+            float(fdk_ssims.mean()),
+            float(psnrs.mean()),
+            float(ssims.mean()),
+        )
 
     # ------------------------------------------------------------------
     # Per-case helpers
