@@ -337,7 +337,7 @@ qualitative inspection.
 **Qualitative comparison**
 
 <p align="center">
-  <img src="docs/figures/comparison_placeholder.png" width="90%" alt="FBP vs Ours vs Ground Truth"/>
+  <img src="docs/figures/comparison_placeholder.png" width="90%" alt="FDK vs Ours vs Ground Truth"/>
   <br/>
   <em>Left → Right: Sparse-view FDK / Ground Truth / CNCT (Ours) / Absolute Difference.</em>
 </p>

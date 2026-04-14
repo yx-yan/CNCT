@@ -24,6 +24,7 @@ model:
   volume_f_maps:   [8, 16, 32, 64, 128]
   num_groups: 8
   use_checkpoint: false   # no gradients during inference — disable for speed
+  use_fdk: false           # must match the training config used for the checkpoint
 
 checkpoint: "{base_dir}/dual_domain_checkpoints/best_checkpoint.pytorch"
 output_dir: "{base_dir}/dual_domain_checkpoints/predictions"

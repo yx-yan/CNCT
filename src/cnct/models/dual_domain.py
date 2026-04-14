@@ -252,8 +252,10 @@ class VolumeUNet3D(nn.Module):
         f_maps: Tuple[int, ...] = (16, 32, 64, 128, 256),
         num_groups: int = 8,
         use_checkpoint: bool = True,
+        use_residual: bool = True,
     ) -> None:
         super().__init__()
+        self.use_residual = use_residual
 
         for f in f_maps:
             assert f % num_groups == 0, (
@@ -293,14 +295,16 @@ class VolumeUNet3D(nn.Module):
         Returns:
             Shape ``[B, 1, Z, Y, X]``.
         """
-        residual = x[:, 0:1]
+        residual = x[:, 0:1] if self.use_residual else None
 
         x, skips = self.encoder(x)
         x = self.bottleneck(x)
         x = self.decoder(x, skips)
-        artifacts = self.final_conv(x)
+        out = self.final_conv(x)
 
-        return residual - artifacts
+        if self.use_residual:
+            return residual - out
+        return out
 
 
 class DualDomainCascadeNet(nn.Module):
@@ -325,11 +329,13 @@ class DualDomainCascadeNet(nn.Module):
         volume_f_maps: Tuple[int, ...] = (8, 16, 32, 64, 128),
         num_groups: int = 8,
         use_checkpoint: bool = True,
+        use_fdk: bool = True,
     ) -> None:
         super().__init__()
 
         self.sinogram_out_features = sinogram_out_features
         self.use_checkpoint = use_checkpoint
+        self.use_fdk = use_fdk
 
         self.branch_a = SinogramUNet3D(
             in_channels=1,
@@ -341,17 +347,19 @@ class DualDomainCascadeNet(nn.Module):
 
         self.dbp = DifferentiableBackprojection()
 
+        branch_b_in = (1 + sinogram_out_features) if use_fdk else sinogram_out_features
         self.branch_b = VolumeUNet3D(
-            in_channels=1 + sinogram_out_features,
+            in_channels=branch_b_in,
             out_channels=1,
             f_maps=volume_f_maps,
             num_groups=num_groups,
             use_checkpoint=use_checkpoint,
+            use_residual=use_fdk,
         )
 
     def forward(
         self,
-        fdk_volume: torch.Tensor,
+        fdk_volume: torch.Tensor | None,
         sinogram: torch.Tensor,
         geo: "tigre.utilities.geometry.Geometry",
         angles: np.ndarray,
@@ -392,11 +400,18 @@ class DualDomainCascadeNet(nn.Module):
         del sino_features
         torch.cuda.empty_cache()
 
-        # --- Fuse FDK + backprojected features ---
-        fused = torch.cat([fdk_volume, vol_features], dim=1)
-        del vol_features
-        torch.cuda.empty_cache()
-
-        # --- Branch B: volume-domain refinement ---
-        output = self.branch_b(fused)
+        # --- Fuse FDK + backprojected features (optional) ---
+        if self.use_fdk:
+            if fdk_volume is None:
+                raise ValueError("fdk_volume is required when use_fdk=True")
+            fused = torch.cat([fdk_volume, vol_features], dim=1)
+            del vol_features
+            torch.cuda.empty_cache()
+            # Branch B applies residual shortcut on channel 0 internally.
+            output = self.branch_b(fused)
+        else:
+            # No FDK prior: direct regression from backprojected features.
+            output = self.branch_b(vol_features)
+            del vol_features
+            torch.cuda.empty_cache()
         return output

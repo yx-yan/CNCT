@@ -141,6 +141,7 @@ class ModelCfg:
     volume_f_maps: Tuple[int, ...] = (8, 16, 32, 64, 128)
     num_groups: int = 8
     use_checkpoint: bool = True
+    use_fdk: bool = True
 
     def __post_init__(self) -> None:
         """Validate architecture parameters.

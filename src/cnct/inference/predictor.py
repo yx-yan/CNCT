@@ -84,6 +84,7 @@ class Predictor:
             volume_f_maps=m.volume_f_maps,
             num_groups=m.num_groups,
             use_checkpoint=False,
+            use_fdk=m.use_fdk,
         )
 
     def _load_checkpoint(self, path: Path) -> None:

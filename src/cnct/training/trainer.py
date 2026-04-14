@@ -122,6 +122,7 @@ class Trainer:
             volume_f_maps=m.volume_f_maps,
             num_groups=m.num_groups,
             use_checkpoint=m.use_checkpoint,
+            use_fdk=m.use_fdk,
         )
 
     def _build_optimizer(self) -> torch.optim.Optimizer:
