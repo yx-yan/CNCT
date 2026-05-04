@@ -29,7 +29,12 @@ from ..models import DualDomainCascadeNet
 from ..utils.device import resolve_device
 from ..utils.io import ensure_dir, safe_load_npy
 from ..utils.paths import case_fdk_path, case_nifti_path
-from .visualize import compute_psnr_ssim, load_gt_as_mu, save_comparison
+from .visualize import (
+    compute_psnr_ssim,
+    load_gt_as_mu,
+    save_comparison,
+    save_individual_panels,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +128,9 @@ class Predictor:
             ``<case>_recon.npy`` output file.
         """
         results: Dict[str, Path] = {}
-        metrics_rows: list[tuple[str, float, float, float, float]] = []
+        metrics_rows: list[
+            tuple[str, float, float, float, float, float, float]
+        ] = []
         t0 = time.time()
         n = len(self.dataset)
 
@@ -171,7 +178,9 @@ class Predictor:
         self,
         case_id: str,
         pred_mu: np.ndarray,
-        metrics_rows: list[tuple[str, float, float, float, float]],
+        metrics_rows: list[
+            tuple[str, float, float, float, float, float, float]
+        ],
     ) -> None:
         """Compute PSNR/SSIM for FDK + prediction and save comparison PNGs."""
         try:
@@ -207,18 +216,23 @@ class Predictor:
             )
             return
 
-        fdk_psnr, fdk_ssim = compute_psnr_ssim(gt, fdk)
-        psnr, ssim = compute_psnr_ssim(gt, pred_mu)
+        fdk_psnr, fdk_ssim, fdk_rmse = compute_psnr_ssim(gt, fdk)
+        psnr, ssim, rmse = compute_psnr_ssim(gt, pred_mu)
         logger.info(
-            "    metrics %s: FDK PSNR=%.2f dB SSIM=%.4f | "
-            "Pred PSNR=%.2f dB SSIM=%.4f",
+            "    metrics %s: "
+            "FDK PSNR=%.2f dB SSIM=%.4f RMSE=%.6f | "
+            "Pred PSNR=%.2f dB SSIM=%.4f RMSE=%.6f",
             case_id,
             fdk_psnr,
             fdk_ssim,
+            fdk_rmse,
             psnr,
             ssim,
+            rmse,
         )
-        metrics_rows.append((case_id, fdk_psnr, fdk_ssim, psnr, ssim))
+        metrics_rows.append(
+            (case_id, fdk_psnr, fdk_ssim, fdk_rmse, psnr, ssim, rmse)
+        )
 
         assert self.viz_dir is not None
         save_comparison(
@@ -232,19 +246,32 @@ class Predictor:
             image_dpi=self.cfg.image_dpi,
             psnr=psnr,
             ssim=ssim,
+            rmse=rmse,
             fdk_psnr=fdk_psnr,
             fdk_ssim=fdk_ssim,
+            fdk_rmse=fdk_rmse,
+        )
+        save_individual_panels(
+            gt=gt,
+            fdk=fdk,
+            recon=pred_mu,
+            dVoxel=dVoxel,
+            case_out=self.viz_dir / case_id,
+            image_dpi=self.cfg.image_dpi * 2,
         )
 
     def _write_metrics_csv(
-        self, rows: list[tuple[str, float, float, float, float]]
+        self,
+        rows: list[tuple[str, float, float, float, float, float, float]],
     ) -> None:
-        """Write per-case FDK + prediction PSNR/SSIM + summary stats."""
+        """Write per-case FDK + prediction PSNR/SSIM/RMSE + summary stats."""
         assert self.metrics_csv is not None
         fdk_psnrs = np.array([r[1] for r in rows], dtype=np.float64)
         fdk_ssims = np.array([r[2] for r in rows], dtype=np.float64)
-        psnrs = np.array([r[3] for r in rows], dtype=np.float64)
-        ssims = np.array([r[4] for r in rows], dtype=np.float64)
+        fdk_rmses = np.array([r[3] for r in rows], dtype=np.float64)
+        psnrs = np.array([r[4] for r in rows], dtype=np.float64)
+        ssims = np.array([r[5] for r in rows], dtype=np.float64)
+        rmses = np.array([r[6] for r in rows], dtype=np.float64)
         with self.metrics_csv.open("w", newline="") as fh:
             w = csv.writer(fh)
             w.writerow(
@@ -252,18 +279,22 @@ class Predictor:
                     "case_id",
                     "fdk_psnr_db",
                     "fdk_ssim",
+                    "fdk_rmse",
                     "pred_psnr_db",
                     "pred_ssim",
+                    "pred_rmse",
                 ]
             )
-            for case_id, fp, fs, pp, ps in rows:
+            for case_id, fp, fs, fr, pp, ps, pr in rows:
                 w.writerow(
                     [
                         case_id,
                         f"{fp:.4f}",
                         f"{fs:.6f}",
+                        f"{fr:.8f}",
                         f"{pp:.4f}",
                         f"{ps:.6f}",
+                        f"{pr:.8f}",
                     ]
                 )
             w.writerow([])
@@ -272,8 +303,10 @@ class Predictor:
                     "mean",
                     f"{fdk_psnrs.mean():.4f}",
                     f"{fdk_ssims.mean():.6f}",
+                    f"{fdk_rmses.mean():.8f}",
                     f"{psnrs.mean():.4f}",
                     f"{ssims.mean():.6f}",
+                    f"{rmses.mean():.8f}",
                 ]
             )
             w.writerow(
@@ -281,18 +314,23 @@ class Predictor:
                     "std",
                     f"{fdk_psnrs.std():.4f}",
                     f"{fdk_ssims.std():.6f}",
+                    f"{fdk_rmses.std():.8f}",
                     f"{psnrs.std():.4f}",
                     f"{ssims.std():.6f}",
+                    f"{rmses.std():.8f}",
                 ]
             )
         logger.info(
-            "Wrote metrics CSV (%d cases): FDK mean PSNR=%.2f/SSIM=%.4f  "
-            "Pred mean PSNR=%.2f/SSIM=%.4f",
+            "Wrote metrics CSV (%d cases): "
+            "FDK mean PSNR=%.2f/SSIM=%.4f/RMSE=%.6f  "
+            "Pred mean PSNR=%.2f/SSIM=%.4f/RMSE=%.6f",
             len(rows),
             float(fdk_psnrs.mean()),
             float(fdk_ssims.mean()),
+            float(fdk_rmses.mean()),
             float(psnrs.mean()),
             float(ssims.mean()),
+            float(rmses.mean()),
         )
 
     # ------------------------------------------------------------------

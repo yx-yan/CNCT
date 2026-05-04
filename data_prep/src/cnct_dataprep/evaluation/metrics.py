@@ -1,7 +1,15 @@
-"""Volumetric PSNR and mean-per-slice SSIM for CT reconstructions.
+"""Volumetric PSNR and 3D SSIM for CT reconstructions.
 
-This module is shape- and unit-aware: PSNR's ``data_range`` is derived from
-the ground-truth max - min so both PSNR and SSIM are consistently scaled.
+Every metric in this module is pinned to ``data_range = SSIM_DATA_RANGE``
+(= 0.1, the physical span of the fixed-range mu normalisation window used
+across the project). Locking ``data_range`` — rather than deriving it from
+``gt.max() - gt.min()`` on a per-case basis — keeps PSNR/SSIM numbers
+directly comparable across cases and across the training / inference /
+thesis-figure pipelines.
+
+SSIM is computed as a single 3D measurement with ``win_size = SSIM_WINDOW``
+(= 7), matching the cubic window used by the training loss, instead of the
+legacy mean-per-slice 2D formulation.
 
 Ground-truth loading is also here because the conversion pipeline (HU -> mu,
 axis reorder) is tightly coupled to the unit convention assumed by the
@@ -22,6 +30,9 @@ from ..utils.io import safe_load_nifti
 logger = logging.getLogger(__name__)
 
 PathLike = Union[str, Path]
+
+SSIM_DATA_RANGE: float = 0.1
+SSIM_WINDOW: int = 7
 
 
 def load_gt_as_mu(
@@ -65,19 +76,21 @@ def load_gt_as_mu(
 def compute_psnr_ssim(
     gt: np.ndarray,
     recon: np.ndarray,
-) -> Tuple[float, float]:
-    """Compute volumetric PSNR and mean per-slice SSIM.
+) -> Tuple[float, float, float]:
+    """Compute volumetric PSNR, 3D SSIM, and RMSE (all in mu units).
 
-    ``data_range`` is derived from ``gt.max() - gt.min()`` and used for both
-    metrics so they remain comparable across cases with different intensity
-    ranges.
+    PSNR and SSIM use ``data_range = SSIM_DATA_RANGE`` (= 0.1), the fixed
+    physical mu span. SSIM is evaluated as a single 3D measurement with a
+    cubic window of side ``SSIM_WINDOW`` (= 7) rather than the legacy
+    mean-per-slice 2D average. RMSE is reported in the same mu units so it
+    is directly comparable across cases.
 
     Args:
         gt: Ground-truth volume in mu units, shape ``(Z, Y, X)``.
         recon: Reconstructed volume in mu units, same shape as ``gt``.
 
     Returns:
-        A tuple ``(psnr_db, mean_ssim)``.
+        A tuple ``(psnr_db, ssim_3d, rmse)``.
 
     Raises:
         ValueError: If ``gt`` and ``recon`` have different shapes.
@@ -87,11 +100,9 @@ def compute_psnr_ssim(
             f"Shape mismatch: gt={gt.shape}, recon={recon.shape}"
         )
 
-    data_range = float(gt.max() - gt.min())
-    psnr = peak_signal_noise_ratio(gt, recon, data_range=data_range)
-
-    ssim_scores = [
-        structural_similarity(gt[z], recon[z], data_range=data_range)
-        for z in range(gt.shape[0])
-    ]
-    return float(psnr), float(np.mean(ssim_scores))
+    psnr = peak_signal_noise_ratio(gt, recon, data_range=SSIM_DATA_RANGE)
+    ssim = structural_similarity(
+        gt, recon, win_size=SSIM_WINDOW, data_range=SSIM_DATA_RANGE
+    )
+    rmse = float(np.sqrt(np.mean((gt.astype(np.float64) - recon.astype(np.float64)) ** 2)))
+    return float(psnr), float(ssim), rmse

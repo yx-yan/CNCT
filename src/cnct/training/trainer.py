@@ -166,12 +166,15 @@ class Trainer:
             The best validation PSNR observed during the run.
         """
         self.maybe_resume()
+        patience = self.cfg.early_stopping_patience
         logger.info(
-            "Starting training: epochs=%d, lr=%.2e, train=%d, val=%d",
+            "Starting training: epochs=%d, lr=%.2e, train=%d, val=%d, "
+            "early_stopping_patience=%d",
             self.cfg.epochs,
             self.cfg.optimizer.lr,
             len(self.train_dataset),
             len(self.val_dataset),
+            patience,
         )
 
         for epoch in range(self.state.start_epoch, self.cfg.epochs + 1):
@@ -205,6 +208,22 @@ class Trainer:
             }
 
             self._save_epoch_checkpoints(epoch, metrics, val_psnr)
+
+            if self.state.epochs_without_improvement >= patience:
+                logger.info(
+                    "Early stopping: val PSNR has not improved for %d "
+                    "consecutive epoch(s) (best=%.2f dB). Stopping at epoch %d.",
+                    self.state.epochs_without_improvement,
+                    self.state.best_psnr,
+                    epoch,
+                )
+                break
+            elif self.state.epochs_without_improvement > 0:
+                logger.info(
+                    "  No improvement for %d/%d epoch(s)",
+                    self.state.epochs_without_improvement,
+                    patience,
+                )
 
         logger.info(
             "Training complete. Best val PSNR: %.2f dB", self.state.best_psnr
@@ -289,7 +308,12 @@ class Trainer:
         self.scaler.update()
 
         loss_val = float(loss.detach().item())
-        psnr_val = compute_psnr(pred.detach().float(), gt.float())
+        psnr_val = compute_psnr(
+            pred.detach().float(),
+            gt.float(),
+            mu_min=self.cfg.data.mu_min,
+            mu_max=self.cfg.data.mu_max,
+        )
 
         del sino, fdk, gt, pred, loss
         if self.device.type == "cuda":
@@ -324,7 +348,12 @@ class Trainer:
                 loss = self.criterion(pred, gt)
 
             total_loss += float(loss.item())
-            total_psnr += compute_psnr(pred.float(), gt.float())
+            total_psnr += compute_psnr(
+                pred.float(),
+                gt.float(),
+                mu_min=self.cfg.data.mu_min,
+                mu_max=self.cfg.data.mu_max,
+            )
 
             del sino, fdk, gt, pred, loss
             if self.device.type == "cuda":
@@ -346,6 +375,18 @@ class Trainer:
             metrics: Latest epoch metrics dict.
             val_psnr: Current validation PSNR for best-tracking.
         """
+        if val_psnr > self.state.best_psnr:
+            self.state.best_psnr = val_psnr
+            self.state.epochs_without_improvement = 0
+            improved = True
+        else:
+            self.state.epochs_without_improvement += 1
+            improved = False
+
+        extra = {
+            "epochs_without_improvement": self.state.epochs_without_improvement
+        }
+
         save_checkpoint(
             self.paths.last,
             epoch=epoch,
@@ -355,10 +396,10 @@ class Trainer:
             scaler=self.scaler,
             best_psnr=self.state.best_psnr,
             metrics=metrics,
+            extra=dict(extra),
         )
 
-        if val_psnr > self.state.best_psnr:
-            self.state.best_psnr = val_psnr
+        if improved:
             save_checkpoint(
                 self.paths.best,
                 epoch=epoch,
@@ -368,6 +409,7 @@ class Trainer:
                 scaler=self.scaler,
                 best_psnr=self.state.best_psnr,
                 metrics=metrics,
+                extra=dict(extra),
             )
             logger.info("  >> New best val PSNR: %.2f dB", self.state.best_psnr)
 

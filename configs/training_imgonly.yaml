@@ -1,8 +1,9 @@
 # -----------------------------------------------------------------------------
-# Dual-domain cascade training configuration.
+# Image-only baseline training configuration.
 #
-# Consumed by: cnct.config.loader.load_training_cfg
-#              → cnct.training.trainer (wired in step 8)
+# Identical to training.yaml except checkpoint_dir, so the image-only run
+# (sbatch slurm/image_only/sbatch_train.sh) does not overwrite the
+# dual-domain checkpoints.
 # -----------------------------------------------------------------------------
 
 geometry_config: geometry.yaml   # relative to this file's directory
@@ -24,7 +25,7 @@ model:
   volume_f_maps:   [8, 16, 32, 64, 128]     # Branch B U-Net feature maps
   num_groups: 8                             # GroupNorm group count
   use_checkpoint: true                      # block-level gradient checkpointing
-  use_fdk: False                             # concat FDK prior + residual shortcut; set false to disable
+  use_fdk: True                             # concat FDK prior + residual shortcut; set false to disable
 
 loss:
   alpha: 1.0           # L1 weight
@@ -45,8 +46,8 @@ scheduler:
 epochs: 100
 seed: 42
 device: auto            # auto | cpu | cuda
-checkpoint_dir: "{base_dir}/dual_domain_checkpoints"
-# resume: "{base_dir}/dual_domain_checkpoints/last_checkpoint.pytorch"  # uncomment to resume from last checkpoint
+checkpoint_dir: "{base_dir}/image_only_checkpoints"
+# resume: "{base_dir}/image_only_checkpoints/last_checkpoint.pytorch"  # uncomment to resume from last checkpoint
 resume: null            # path to a .pytorch checkpoint, or null
 log_interval: 5
 amp: true               # enable torch AMP autocast + GradScaler

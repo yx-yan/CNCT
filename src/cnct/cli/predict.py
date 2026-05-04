@@ -10,9 +10,38 @@ from typing import Optional
 from ..config.loader import load_inference_cfg
 from ..data.dataset import DualDomainDataset
 from ..inference.predictor import Predictor
+from ..models import VolumeUNet3D
 from ..utils.logging import configure_root_logger
 
 logger = logging.getLogger(__name__)
+
+
+class _ImageOnlyPredictor(Predictor):
+    """Predictor variant that drops Branch A and the DBP, keeping Branch B only.
+
+    Mirrors :class:`cnct.cli.train._ImageOnlyTrainer`: builds a
+    :class:`VolumeUNet3D` with ``in_channels=1`` and shims its ``forward`` to
+    absorb the sinogram/geometry arguments threaded through the base
+    :class:`Predictor` loop.
+    """
+
+    def _build_model(self) -> VolumeUNet3D:
+        m = self.cfg.model
+        net = VolumeUNet3D(
+            in_channels=1,
+            out_channels=1,
+            f_maps=m.volume_f_maps,
+            num_groups=m.num_groups,
+            use_checkpoint=False,
+            use_residual=m.use_fdk,
+        )
+        base_forward = net.forward
+
+        def _forward(fdk, sinogram=None, geo=None, angles=None):  # noqa: ARG001
+            return base_forward(fdk)
+
+        net.forward = _forward  # type: ignore[assignment]
+        return net
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -36,6 +65,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--log_level",
         default="INFO",
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+    )
+    parser.add_argument(
+        "--image_only",
+        action="store_true",
+        help=(
+            "Run the image-only baseline: FDK → VolumeUNet3D (Branch B) "
+            "→ reconstruction. Skips Branch A and the differentiable "
+            "backprojection. Must match the model used at training time."
+        ),
     )
     return parser
 
@@ -61,7 +99,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         logger.error("No cases discovered for split %r.", cfg.split)
         return 2
 
-    predictor = Predictor(cfg, dataset)
+    predictor_cls = _ImageOnlyPredictor if args.image_only else Predictor
+    if args.image_only:
+        logger.info(
+            "Image-only baseline: FDK → VolumeUNet3D (use_fdk=%s, no DBP)",
+            cfg.model.use_fdk,
+        )
+    predictor = predictor_cls(cfg, dataset)
     try:
         predictor.run()
     except Exception:  # noqa: BLE001 — top-level CLI boundary

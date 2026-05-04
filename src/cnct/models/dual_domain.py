@@ -295,6 +295,9 @@ class VolumeUNet3D(nn.Module):
         Returns:
             Shape ``[B, 1, Z, Y, X]``.
         """
+        # [use_fdk 控制点 3] 残差连接——是否从输入中提取 FDK 作为残差基底
+        # use_fdk=True  → use_residual=True  → 取 channel 0 (FDK) 存为 residual
+        # use_fdk=False → use_residual=False → 不提取，residual=None
         residual = x[:, 0:1] if self.use_residual else None
 
         x, skips = self.encoder(x)
@@ -303,7 +306,9 @@ class VolumeUNet3D(nn.Module):
         out = self.final_conv(x)
 
         if self.use_residual:
+            # use_fdk=True: 网络学习伪影，最终输出 = FDK 原图 − 预测伪影
             return residual - out
+        # use_fdk=False: 网络直接回归重建结果，无残差
         return out
 
 
@@ -347,7 +352,13 @@ class DualDomainCascadeNet(nn.Module):
 
         self.dbp = DifferentiableBackprojection()
 
+        # [use_fdk 控制点 1] Branch B 输入通道数
+        # use_fdk=True:  1 (FDK, channel 0) + C (DBP特征) = 1+C 个输入通道
+        # use_fdk=False: 只有 C 个 DBP 特征通道，不包含 FDK
         branch_b_in = (1 + sinogram_out_features) if use_fdk else sinogram_out_features
+        # [use_fdk 控制点 2] Branch B 残差连接开关
+        # use_fdk=True:  use_residual=True  → output = FDK − predicted_artifacts
+        # use_fdk=False: use_residual=False → output = 直接回归，无残差
         self.branch_b = VolumeUNet3D(
             in_channels=branch_b_in,
             out_channels=1,
@@ -400,17 +411,20 @@ class DualDomainCascadeNet(nn.Module):
         del sino_features
         torch.cuda.empty_cache()
 
-        # --- Fuse FDK + backprojected features (optional) ---
+        # [use_fdk 控制点 4] 前向传播中的 FDK 融合分支
         if self.use_fdk:
+            # use_fdk=True: 将 FDK [B,1,Z,Y,X] 与 DBP特征 [B,C,Z,Y,X]
+            # 在 channel 维拼接 → [B, 1+C, Z, Y, X]，FDK 固定在 channel 0
             if fdk_volume is None:
                 raise ValueError("fdk_volume is required when use_fdk=True")
             fused = torch.cat([fdk_volume, vol_features], dim=1)
             del vol_features
             torch.cuda.empty_cache()
-            # Branch B applies residual shortcut on channel 0 internally.
+            # Branch B 内部取 channel 0 做残差: output = FDK − artifacts
             output = self.branch_b(fused)
         else:
-            # No FDK prior: direct regression from backprojected features.
+            # use_fdk=False: fdk_volume 参数被完全忽略，不参与任何计算
+            # 仅从 DBP 特征 [B,C,Z,Y,X] 直接回归重建结果
             output = self.branch_b(vol_features)
             del vol_features
             torch.cuda.empty_cache()

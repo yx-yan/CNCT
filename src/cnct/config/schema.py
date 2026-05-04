@@ -315,6 +315,7 @@ class TrainingCfg:
     resume: Optional[Path] = None
     log_interval: int = 5
     amp: bool = True
+    early_stopping_patience: int = 20
 
     def __post_init__(self) -> None:
         """Validate training-loop parameters.
@@ -332,6 +333,11 @@ class TrainingCfg:
         if self.log_interval <= 0:
             raise ValueError(
                 f"log_interval must be > 0; got {self.log_interval}"
+            )
+        if self.early_stopping_patience <= 0:
+            raise ValueError(
+                f"early_stopping_patience must be > 0; "
+                f"got {self.early_stopping_patience}"
             )
 
 

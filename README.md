@@ -54,9 +54,15 @@ backprojection layer differentiable under PyTorch autograd.
 - **Bit-exact reproducibility.** Under `cudnn.deterministic = True` the
   refactored model matches the legacy implementation bit-for-bit on both
   forward and backward passes, including through the TIGRE DBP layer.
+- **Built-in image-only ablation.** A `--image_only` flag on the same
+  training/inference CLIs runs an FDK→3D U-Net baseline (Branch B alone, no
+  Branch A, no DBP), reusing the dataset, loss, and checkpoint layout for
+  apples-to-apples comparison against the full dual-domain cascade.
 - **Custom-dataset ready.** Per-case TIGRE geometry is rebuilt from the
   NIfTI header, so volumes with heterogeneous voxel spacing and Z-depth can
-  be used without manual intervention.
+  be used without manual intervention. A single `base_dir:` field at the top
+  of each YAML config retargets every dataset and checkpoint path on a new
+  server.
 
 ---
 
@@ -123,14 +129,20 @@ CNCT/
 │
 ├── configs/                         # cnct YAML configs
 │   ├── geometry.yaml
-│   ├── training.yaml
-│   └── inference.yaml
+│   ├── training.yaml                # dual-domain cascade
+│   ├── inference.yaml
+│   ├── training_imgonly.yaml        # image-only (FDK → VolumeUNet3D) baseline
+│   └── inference_imgonly.yaml
 │
 ├── slurm/                           # SLURM job templates
 │   ├── data_prep/sbatch_dataprep.sh
-│   └── dual_domain/
-│       ├── sbatch_train.sh
-│       └── sbatch_predict.sh
+│   ├── dual_domain/
+│   │   ├── sbatch_train.sh                  # cnct-train
+│   │   ├── sbatch_predict.sh                # cnct-predict
+│   │   └── sbatch_thesis_figures.sh         # generate thesis figures
+│   └── image_only/
+│       ├── sbatch_train.sh                  # cnct-train --image_only
+│       └── sbatch_predict.sh                # cnct-predict --image_only
 │
 ├── pyproject.toml                   # cnct package manifest
 ├── README.md                        # this file
@@ -267,27 +279,37 @@ Representative configuration excerpt:
 ```yaml
 # configs/training.yaml  (excerpt)
 geometry_config: geometry.yaml
+base_dir: /projects/CTdata           # single root substituted into the paths below
 data:
-  data_dir: /projects/CTdata/AbdomenCT-1K-ImagePart1
-  proj_dir: /projects/CTdata/projection60
-  fdk_dir:  /projects/CTdata/fdk60
-  h5_root:  /projects/CTdata/h5_3dunet
+  data_dir: "{base_dir}/AbdomenCT-1K-Image"
+  proj_dir: "{base_dir}/projection{n_angles}"   # {n_angles} comes from geometry.yaml
+  fdk_dir:  "{base_dir}/fdk{n_angles}"
+  h5_root:  "{base_dir}/h5_3dunet"
   spatial_scale: 0.5                 # volume downsample; sinogram stays full-res
   mu_min: -0.02
   mu_max:  0.08
 model:
   sinogram_out_features: 4           # DBP channels passed to Branch B
-  sinogram_f_maps: [8, 16, 32, 64]
+  sinogram_f_maps: [8, 16, 32, 64, 128]
   volume_f_maps:   [8, 16, 32, 64, 128]
+  num_groups: 8
   use_checkpoint:  true              # gradient checkpointing
+  use_fdk: false                     # concat FDK + residual shortcut on Branch B input
 loss:      {alpha: 1.0, beta: 0.2, gamma: 1.0, ssim_window: 7}
-optimizer: {lr: 2.0e-4, weight_decay: 1.0e-5}
-scheduler: {mode: max, factor: 0.5, patience: 10}   # ReduceLROnPlateau on val PSNR
-epochs: 200
+optimizer: {lr: 2.0e-4, weight_decay: 1.0e-5}     # AdamW
+scheduler: {mode: max, factor: 0.5, patience: 10} # ReduceLROnPlateau on val PSNR
+epochs: 100
 seed:   42
 amp:    true
-checkpoint_dir: /projects/CTdata/dual_domain_checkpoints
+early_stopping_patience: 20          # stop if val PSNR stalls for N epochs
+checkpoint_dir: "{base_dir}/dual_domain_checkpoints"
 ```
+
+> **Path templating.** The loader pops the top-level `base_dir:` field and
+> substitutes it (along with `{n_angles}` from the geometry config) into
+> every `data.*` path, `checkpoint_dir`, `resume`, `checkpoint`, and
+> `output_dir` field. Retargeting the pipeline to a new server is a
+> one-line edit. See `cnct.config.loader` for the full resolution path.
 
 Checkpointing:
 
@@ -318,6 +340,43 @@ cnct-evaluation --config data_prep/configs/evaluation.yaml
 `cnct-evaluation` emits a `evaluation_results.csv` with per-case PSNR and
 SSIM, together with PNG comparison grids (input FDK / prediction / GT) for
 qualitative inspection.
+
+Setting `save_png: true` in `inference.yaml` additionally makes
+`cnct-predict` write per-case axial / coronal / sagittal comparison PNGs to
+`{output_dir}/visualizations/<CaseID>/` and an aggregate `metrics.csv`
+(PSNR / SSIM vs the GT NIfTI) at the root of `output_dir`. DPI is controlled
+by `image_dpi`.
+
+### 4. Image-Only Baseline (ablation)
+
+The same training/inference CLIs accept `--image_only` to run the FDK →
+VolumeUNet3D baseline (Branch B alone, no Branch A, no DBP). The dataset,
+loss, and checkpoint plumbing are unchanged — only the model is swapped, so
+results are directly comparable to the dual-domain run.
+
+```bash
+# Train and run inference for the image-only baseline
+sbatch slurm/image_only/sbatch_train.sh                            # default config
+sbatch slurm/image_only/sbatch_predict.sh
+
+# Or directly
+python -m cnct.cli.train   --config configs/training_imgonly.yaml  --image_only
+python -m cnct.cli.predict --config configs/inference_imgonly.yaml --image_only
+```
+
+The dedicated `*_imgonly.yaml` configs differ from the dual-domain ones only
+in `checkpoint_dir` / `checkpoint` / `output_dir`, so the baseline run does
+not overwrite the dual-domain checkpoints.
+
+### 5. Thesis Figures
+
+```bash
+sbatch slurm/dual_domain/sbatch_thesis_figures.sh                  # default output dir
+sbatch slurm/dual_domain/sbatch_thesis_figures.sh /path/to/out
+```
+
+Invokes `scripts/thesis/generate_thesis_figures.py` to assemble the
+publication figures from the saved checkpoints and predictions.
 
 ---
 

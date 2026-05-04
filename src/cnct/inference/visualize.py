@@ -22,6 +22,9 @@ from ..utils.io import safe_load_nifti
 
 logger = logging.getLogger(__name__)
 
+SSIM_DATA_RANGE: float = 0.1
+SSIM_WINDOW: int = 7
+
 
 def load_gt_as_mu(
     nii_path: Path, mu_water: float
@@ -39,19 +42,28 @@ def load_gt_as_mu(
 
 def compute_psnr_ssim(
     gt: np.ndarray, recon: np.ndarray
-) -> Tuple[float, float]:
-    """Volumetric PSNR + mean per-slice SSIM in mu units."""
+) -> Tuple[float, float, float]:
+    """Volumetric PSNR + 3D SSIM + RMSE in mu units.
+
+    PSNR and SSIM are locked to ``data_range = SSIM_DATA_RANGE`` (= 0.1).
+    SSIM is a single 3D measurement with a cubic window of side
+    :data:`SSIM_WINDOW` (= 7), matching the training loss and the
+    data-prep evaluation script. RMSE is reported in the same mu units.
+    """
     if gt.shape != recon.shape:
         raise ValueError(
             f"Shape mismatch: gt={gt.shape}, recon={recon.shape}"
         )
-    data_range = float(gt.max() - gt.min())
-    psnr = peak_signal_noise_ratio(gt, recon, data_range=data_range)
-    ssim_scores = [
-        structural_similarity(gt[z], recon[z], data_range=data_range)
-        for z in range(gt.shape[0])
-    ]
-    return float(psnr), float(np.mean(ssim_scores))
+    psnr = peak_signal_noise_ratio(gt, recon, data_range=SSIM_DATA_RANGE)
+    ssim = structural_similarity(
+        gt, recon, win_size=SSIM_WINDOW, data_range=SSIM_DATA_RANGE
+    )
+    rmse = float(
+        np.sqrt(
+            np.mean((gt.astype(np.float64) - recon.astype(np.float64)) ** 2)
+        )
+    )
+    return float(psnr), float(ssim), rmse
 
 
 def save_comparison(
@@ -65,8 +77,10 @@ def save_comparison(
     image_dpi: int,
     psnr: float,
     ssim: float,
+    rmse: float | None = None,
     fdk_psnr: float | None = None,
     fdk_ssim: float | None = None,
+    fdk_rmse: float | None = None,
 ) -> None:
     """Save ``GT | FDK | recon | |diff|`` comparison PNGs for one case."""
     if gt.shape != recon.shape or gt.shape != fdk.shape:
@@ -111,7 +125,11 @@ def save_comparison(
     fdk_title = "FDK Input"
     if fdk_psnr is not None and fdk_ssim is not None:
         fdk_title += f"\nPSNR: {fdk_psnr:.2f} dB | SSIM: {fdk_ssim:.4f}"
+        if fdk_rmse is not None:
+            fdk_title += f" | RMSE: {fdk_rmse:.6f}"
     rec_title = recon_label + f"\nPSNR: {psnr:.2f} dB | SSIM: {ssim:.4f}"
+    if rmse is not None:
+        rec_title += f" | RMSE: {rmse:.6f}"
 
     for name, gt_img, fdk_img, rec_img, phys_h, phys_w in slice_spec:
         panel_h = 5.0
@@ -143,3 +161,101 @@ def save_comparison(
             dpi=image_dpi,
         )
         plt.close(fig)
+
+
+def save_individual_panels(
+    gt: np.ndarray,
+    fdk: np.ndarray,
+    recon: np.ndarray,
+    dVoxel: np.ndarray,
+    case_out: Path,
+    image_dpi: int,
+) -> None:
+    """Save paper-ready single-panel PNGs (no titles, no axes).
+
+    Emits one PNG per panel (GT / FDK / Pred / |diff|) for each of the
+    three slice planes (axial / coronal / sagittal) into
+    ``case_out / "individual" /``. Aspect ratio reflects physical voxel
+    spacing; window/level matches :func:`save_comparison` so the panels
+    are directly comparable.
+    """
+    if gt.shape != recon.shape or gt.shape != fdk.shape:
+        raise ValueError(
+            f"Shape mismatch: gt={gt.shape}, fdk={fdk.shape}, "
+            f"recon={recon.shape}"
+        )
+
+    out = case_out / "individual"
+    out.mkdir(parents=True, exist_ok=True)
+
+    dz, dy, dx = (float(v) for v in dVoxel)
+    nz, ny, nx = gt.shape
+    vmin, vmax = np.percentile(gt, [1, 99])
+
+    slice_spec = [
+        (
+            "axial",
+            gt[nz // 2, :, :],
+            fdk[nz // 2, :, :],
+            recon[nz // 2, :, :],
+            ny * dy,
+            nx * dx,
+        ),
+        (
+            "coronal",
+            gt[:, ny // 2, :],
+            fdk[:, ny // 2, :],
+            recon[:, ny // 2, :],
+            nz * dz,
+            nx * dx,
+        ),
+        (
+            "sagittal",
+            gt[:, :, nx // 2],
+            fdk[:, :, nx // 2],
+            recon[:, :, nx // 2],
+            nz * dz,
+            ny * dy,
+        ),
+    ]
+
+    for name, gt_img, fdk_img, rec_img, phys_h, phys_w in slice_spec:
+        diff = np.abs(gt_img - rec_img)
+        panels = (
+            ("gt", gt_img, "gray", vmin, vmax),
+            ("fdk", fdk_img, "gray", vmin, vmax),
+            ("pred", rec_img, "gray", vmin, vmax),
+            ("diff", diff, "hot", None, None),
+        )
+        for kind, img, cmap, vlo, vhi in panels:
+            _save_clean_panel(
+                img,
+                out / f"{name}_{kind}.png",
+                cmap=cmap,
+                vmin=vlo,
+                vmax=vhi,
+                phys_h=phys_h,
+                phys_w=phys_w,
+                image_dpi=image_dpi,
+            )
+
+
+def _save_clean_panel(
+    img: np.ndarray,
+    out_path: Path,
+    *,
+    cmap: str,
+    vmin: float | None,
+    vmax: float | None,
+    phys_h: float,
+    phys_w: float,
+    image_dpi: int,
+) -> None:
+    panel_h = 5.0
+    panel_w = phys_w / phys_h * panel_h
+    fig = plt.figure(figsize=(panel_w, panel_h))
+    ax = fig.add_axes((0.0, 0.0, 1.0, 1.0))
+    ax.imshow(img, cmap=cmap, vmin=vmin, vmax=vmax, aspect="auto")
+    ax.set_axis_off()
+    fig.savefig(out_path, dpi=image_dpi, pad_inches=0)
+    plt.close(fig)

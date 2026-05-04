@@ -14,10 +14,40 @@ from typing import Optional
 
 from ..config.loader import load_training_cfg
 from ..data.dataset import DualDomainDataset
+from ..models import VolumeUNet3D
 from ..training.trainer import DEFAULT_GRAD_CLIP_NORM, Trainer
 from ..utils.logging import configure_root_logger
 
 logger = logging.getLogger(__name__)
+
+
+class _ImageOnlyTrainer(Trainer):
+    """Trainer variant that drops Branch A and the DBP, keeping Branch B only.
+
+    The model is the existing :class:`VolumeUNet3D` (``cnct.models``) with
+    ``in_channels=1`` so it consumes the FDK volume directly. A tiny
+    ``forward`` override absorbs the sinogram/geometry arguments passed by
+    the base :class:`Trainer` loop so nothing else in the training path
+    needs to change.
+    """
+
+    def _build_model(self) -> VolumeUNet3D:
+        m = self.cfg.model
+        net = VolumeUNet3D(
+            in_channels=1,
+            out_channels=1,
+            f_maps=m.volume_f_maps,
+            num_groups=m.num_groups,
+            use_checkpoint=m.use_checkpoint,
+            use_residual=m.use_fdk,
+        )
+        base_forward = net.forward
+
+        def _forward(fdk, sinogram=None, geo=None, angles=None):  # noqa: ARG001
+            return base_forward(fdk)
+
+        net.forward = _forward  # type: ignore[assignment]
+        return net
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -52,6 +82,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default="INFO",
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
     )
+    parser.add_argument(
+        "--image_only",
+        action="store_true",
+        help=(
+            "Train the image-only baseline: FDK → VolumeUNet3D (Branch B) "
+            "→ reconstruction. Skips Branch A and the differentiable "
+            "backprojection. Reuses the same config, dataset, losses, and "
+            "checkpoint layout as the dual-domain run."
+        ),
+    )
     return parser
 
 
@@ -82,7 +122,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 2
 
     clip = args.grad_clip_norm if args.grad_clip_norm > 0 else None
-    trainer = Trainer(cfg, train_ds, val_ds, grad_clip_norm=clip)
+    trainer_cls = _ImageOnlyTrainer if args.image_only else Trainer
+    if args.image_only:
+        logger.info(
+            "Image-only baseline: FDK → VolumeUNet3D (use_fdk=%s, no DBP)",
+            cfg.model.use_fdk,
+        )
+    trainer = trainer_cls(cfg, train_ds, val_ds, grad_clip_norm=clip)
 
     try:
         trainer.fit()

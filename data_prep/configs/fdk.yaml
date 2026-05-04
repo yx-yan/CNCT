@@ -20,10 +20,10 @@ filter_name: ram_lak
 
 # --- Case selection ---
 case_start: 0
-case_end: null
+case_end: 5
 max_cases: null
 
 # --- Output ---
-save_png: False       # save reconstruction slice PNGs
-save_nii: false      # save recon_fdk.nii.gz (large; disable to save disk space)
+save_png: True       # save reconstruction slice PNGs
+save_nii: False      # save recon_fdk.nii.gz (large; disable to save disk space)
 image_dpi: 150

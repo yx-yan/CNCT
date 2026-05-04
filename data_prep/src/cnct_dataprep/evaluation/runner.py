@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 _RECON_FILENAME = "recon_fdk.npy"
 _RECON_LABEL = "FDK Reconstruction"
-_CSV_FIELDS = ("case", "psnr_db", "ssim")
+_CSV_FIELDS = ("case", "psnr_db", "ssim", "rmse")
 
 
 def evaluate_case(
@@ -76,14 +76,16 @@ def evaluate_case(
     )
 
     try:
-        psnr, ssim = compute_psnr_ssim(gt, recon)
+        psnr, ssim, rmse = compute_psnr_ssim(gt, recon)
     except ValueError as exc:
         logger.warning(
             "Shape mismatch for %s: %s — skipping metrics", case_id, exc
         )
         return None
 
-    logger.info("  PSNR: %.2f dB  |  SSIM: %.4f", psnr, ssim)
+    logger.info(
+        "  PSNR: %.2f dB  |  SSIM: %.4f  |  RMSE: %.6f", psnr, ssim, rmse
+    )
 
     if cfg.save_png:
         try:
@@ -98,6 +100,7 @@ def evaluate_case(
                 cfg.image_dpi,
                 psnr=psnr,
                 ssim=ssim,
+                rmse=rmse,
             )
             logger.info("  Comparison images saved to %s", case_out)
         except (OSError, ValueError) as exc:
@@ -111,6 +114,7 @@ def evaluate_case(
         "case": case_id,
         "psnr_db": round(psnr, 4),
         "ssim": round(ssim, 6),
+        "rmse": round(rmse, 8),
     }
 
 
@@ -178,12 +182,16 @@ def run_evaluation(cfg: EvaluationCfg) -> None:
 
     psnr_vals = np.array([r["psnr_db"] for r in results], dtype=np.float64)
     ssim_vals = np.array([r["ssim"] for r in results], dtype=np.float64)
+    rmse_vals = np.array([r["rmse"] for r in results], dtype=np.float64)
     logger.info(
         "Summary across %d case(s): "
-        "PSNR mean=%.2f dB std=%.2f | SSIM mean=%.4f std=%.4f",
+        "PSNR mean=%.2f dB std=%.2f | SSIM mean=%.4f std=%.4f | "
+        "RMSE mean=%.6f std=%.6f",
         len(results),
         float(psnr_vals.mean()),
         float(psnr_vals.std()),
         float(ssim_vals.mean()),
         float(ssim_vals.std()),
+        float(rmse_vals.mean()),
+        float(rmse_vals.std()),
     )

@@ -24,6 +24,7 @@ def save_comparison(
     image_dpi: int,
     psnr: Optional[float] = None,
     ssim: Optional[float] = None,
+    rmse: Optional[float] = None,
 ) -> None:
     """Save axial, coronal, and sagittal comparison PNGs for one case.
 
@@ -89,6 +90,8 @@ def save_comparison(
         title = case_id
         if psnr is not None and ssim is not None:
             title += f" — PSNR: {psnr:.2f} dB | SSIM: {ssim:.4f}"
+            if rmse is not None:
+                title += f" | RMSE: {rmse:.6f}"
         title += f" — {name}"
         fig.suptitle(title)
 

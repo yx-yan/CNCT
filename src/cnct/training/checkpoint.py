@@ -80,10 +80,13 @@ class TrainState:
     Attributes:
         start_epoch: Next epoch index to run (1-indexed).
         best_psnr: Best validation PSNR (dB) seen so far.
+        epochs_without_improvement: Number of consecutive epochs since the
+            last best-PSNR improvement. Used by the early-stopping check.
     """
 
     start_epoch: int = 1
     best_psnr: float = float("-inf")
+    epochs_without_improvement: int = 0
 
 
 def save_checkpoint(
@@ -120,6 +123,10 @@ def save_checkpoint(
         "best_psnr": best_psnr,
         "metrics": dict(metrics),
     }
+    if extra is not None and "epochs_without_improvement" in extra:
+        record["epochs_without_improvement"] = extra.pop(
+            "epochs_without_improvement"
+        )
     if extra:
         record.update(extra)
 
@@ -170,6 +177,9 @@ def load_checkpoint(
     state = TrainState(
         start_epoch=int(ckpt["epoch"]) + 1,
         best_psnr=float(ckpt.get("best_psnr", float("-inf"))),
+        epochs_without_improvement=int(
+            ckpt.get("epochs_without_improvement", 0)
+        ),
     )
     logger.info(
         "Checkpoint loaded ← %s (resume at epoch %d, best PSNR=%.2f dB)",
